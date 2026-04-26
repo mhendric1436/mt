@@ -947,8 +947,10 @@ private:
 // -----------------------------------------------------------------------------
 
 template <class Row, class Mapping>
-requires RowMapping<Mapping, Row>
 class Table {
+    static_assert(RowMapping<Mapping, Row>,
+        "Mapping must define table_name, key(row), to_json(row), and from_json(json)");
+
 public:
     using row_type = Row;
     using mapping_type = Mapping;

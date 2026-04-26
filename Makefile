@@ -19,6 +19,7 @@ LDFLAGS  ?=
 LDLIBS   ?=
 
 BUILD_DIR := build
+BUILD_STAMP := $(BUILD_DIR)/.dir
 TEST_BIN  := $(BUILD_DIR)/mt_core_tests
 
 CORE_HEADER := mt_core.hpp
@@ -30,10 +31,11 @@ all: test
 
 build: $(TEST_BIN)
 
-$(BUILD_DIR):
+$(BUILD_STAMP):
 	mkdir -p $(BUILD_DIR)
+	touch $(BUILD_STAMP)
 
-$(TEST_BIN): $(TEST_SRC) $(CORE_HEADER) | $(BUILD_DIR)
+$(TEST_BIN): $(TEST_SRC) $(CORE_HEADER) | $(BUILD_STAMP)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(TEST_SRC) -o $@ $(LDFLAGS) $(LDLIBS)
 
 test: build
@@ -43,7 +45,7 @@ check: header-check test
 
 # Compile the header as a translation unit to catch standalone header errors.
 # -x c++ forces C++ parsing even though the file extension is .hpp.
-header-check: $(CORE_HEADER) | $(BUILD_DIR)
+header-check: $(CORE_HEADER) | $(BUILD_STAMP)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -x c++ -fsyntax-only $(CORE_HEADER)
 
 rebuild: clean build

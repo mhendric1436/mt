@@ -48,7 +48,7 @@ public:
         std::lock_guard lock(mutex_);
         const auto id = ++next_id_;
         users_[id] = user;
-        json_ids_[address_key(Json{})] = id;
+        json_ids_[address_key(mt::Json{})] = id;
 
         // mt::Json has no payload in the skeleton. Return a default object and
         // rely on encode/decode call ordering through latest_id_. This is a test
