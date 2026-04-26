@@ -1,0 +1,43 @@
+# Build artifacts
+build/
+out/
+cmake-build-*/
+
+# Compiled binaries and objects
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+*.out
+
+# Test and coverage outputs
+*.gcda
+*.gcno
+*.gcov
+coverage/
+
+# Editor swap/backup files
+*.swp
+*.swo
+*.swn
+.*.swp
+.*.swo
+*~
+
+# Local IDE/editor metadata
+.vscode/
+.idea/
+*.user
+*.code-workspace
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Local environment files
+.env
+.env.*
