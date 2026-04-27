@@ -14,6 +14,7 @@ tags
 *.dll
 *.exe
 *.out
+*.png
 
 # Test and coverage outputs
 *.gcda
