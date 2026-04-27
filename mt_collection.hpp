@@ -14,32 +14,37 @@
 // Collection descriptors and migration specs.
 // -----------------------------------------------------------------------------
 
-namespace mt {
+namespace mt
+{
 
 using CollectionId = std::uint64_t;
 using Version = std::uint64_t;
 using TxId = std::string;
 
-struct Migration {
+struct Migration
+{
     int from_version = 0;
     int to_version = 0;
     std::function<void(Json&)> transform;
 };
 
-struct CollectionSpec {
+struct CollectionSpec
+{
     std::string logical_name;
     std::vector<IndexSpec> indexes;
     int schema_version = 1;
     std::vector<Migration> migrations;
 };
 
-struct CollectionDescriptor {
+struct CollectionDescriptor
+{
     CollectionId id = 0;
     std::string logical_name;
     int schema_version = 1;
 };
 
-struct BootstrapSpec {
+struct BootstrapSpec
+{
     int metadata_schema_version = 1;
 };
 

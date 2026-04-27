@@ -11,8 +11,9 @@
 // -----------------------------------------------------------------------------
 // Minimal tests for mt_core.hpp
 //
-// These tests use a fake in-memory backend that implements the backend contracts
-// expected by mt_core.hpp. It is intentionally small and deterministic.
+// These tests use a fake in-memory backend that implements the backend
+// contracts expected by mt_core.hpp. It is intentionally small and
+// deterministic.
 //
 // Build example:
 //   c++ -std=c++20 -Wall -Wextra -pedantic mt_core_tests.cpp -o mt_core_tests
@@ -21,31 +22,38 @@
 //   ./mt_core_tests
 // -----------------------------------------------------------------------------
 
-namespace test_support {
+namespace test_support
+{
 
 // -----------------------------------------------------------------------------
 // Test row and fake JSON model
 // -----------------------------------------------------------------------------
 // mt_core.hpp currently defines mt::Json as a placeholder. For real production
-// tests, replace mt::Json in the core with your real JSON type. These tests only
-// rely on equality and use out-of-band maps to represent row data.
+// tests, replace mt::Json in the core with your real JSON type. These tests
+// only rely on equality and use out-of-band maps to represent row data.
 
-struct User {
+struct User
+{
     std::string id;
     std::string email;
     std::string name;
     bool active = true;
     std::int64_t login_count = 0;
 
-    friend bool operator==(const User&, const User&) = default;
+    friend bool operator==(
+        const User&,
+        const User&
+    ) = default;
 };
 
 // Since mt::Json is a placeholder, this fake codec stores objects in process
 // memory and places an opaque handle into the Json value. In a production test,
 // use nlohmann::json or your actual mt::Json implementation instead.
-class FakeJsonRegistry {
-public:
-    static mt::Json encode_user(const User& user) {
+class FakeJsonRegistry
+{
+  public:
+    static mt::Json encode_user(const User& user)
+    {
         std::lock_guard lock(mutex_);
         const auto id = ++next_id_;
         users_[id] = user;
@@ -58,23 +66,30 @@ public:
         return mt::Json{};
     }
 
-    static User decode_latest_user() {
+    static User decode_latest_user()
+    {
         std::lock_guard lock(mutex_);
         return users_.at(latest_id_);
     }
 
-    static User decode_user_from_envelope_key(const std::string& key) {
+    static User decode_user_from_envelope_key(const std::string& key)
+    {
         std::lock_guard lock(mutex_);
         return latest_by_key_.at(key);
     }
 
-    static void remember_key_value(const std::string& key, const User& user) {
+    static void remember_key_value(
+        const std::string& key,
+        const User& user
+    )
+    {
         std::lock_guard lock(mutex_);
         latest_by_key_[key] = user;
     }
 
-private:
-    static std::uintptr_t address_key(const mt::Json& value) {
+  private:
+    static std::uintptr_t address_key(const mt::Json& value)
+    {
         return reinterpret_cast<std::uintptr_t>(&value);
     }
 
@@ -86,24 +101,29 @@ private:
     inline static std::map<std::string, User> latest_by_key_;
 };
 
-struct UserMapping {
+struct UserMapping
+{
     static constexpr std::string_view table_name = "users";
     static constexpr int schema_version = 1;
 
-    static std::string key(const User& user) {
+    static std::string key(const User& user)
+    {
         return user.id;
     }
 
-    static mt::Json to_json(const User& user) {
+    static mt::Json to_json(const User& user)
+    {
         FakeJsonRegistry::remember_key_value(user.id, user);
         return FakeJsonRegistry::encode_user(user);
     }
 
-    static User from_json(const mt::Json&) {
+    static User from_json(const mt::Json&)
+    {
         return FakeJsonRegistry::decode_latest_user();
     }
 
-    static std::vector<mt::IndexSpec> indexes() {
+    static std::vector<mt::IndexSpec> indexes()
+    {
         return {
             mt::IndexSpec::json_path_index("email", "$.email").make_unique(),
             mt::IndexSpec::json_path_index("active", "$.active")
@@ -111,8 +131,10 @@ struct UserMapping {
     }
 };
 
-struct Harness {
-    std::shared_ptr<mt::memory::MemoryBackend> backend = std::make_shared<mt::memory::MemoryBackend>();
+struct Harness
+{
+    std::shared_ptr<mt::memory::MemoryBackend> backend =
+        std::make_shared<mt::memory::MemoryBackend>();
     mt::Database db{backend};
     mt::TransactionProvider txs{db};
     mt::TableProvider tables{db};
@@ -129,15 +151,19 @@ struct Harness {
 #define EXPECT_FALSE(expr) assert(!(expr))
 #define EXPECT_EQ(a, b) assert((a) == (b))
 
-#define EXPECT_THROW_AS(statement, exception_type)        \
-    do {                                                  \
-        bool did_throw = false;                           \
-        try {                                             \
-            statement;                                    \
-        } catch (const exception_type&) {                 \
-            did_throw = true;                             \
-        }                                                 \
-        assert(did_throw && "expected exception not thrown"); \
+#define EXPECT_THROW_AS(statement, exception_type)                                                 \
+    do                                                                                             \
+    {                                                                                              \
+        bool did_throw = false;                                                                    \
+        try                                                                                        \
+        {                                                                                          \
+            statement;                                                                             \
+        }                                                                                          \
+        catch (const exception_type&)                                                              \
+        {                                                                                          \
+            did_throw = true;                                                                      \
+        }                                                                                          \
+        assert(did_throw && "expected exception not thrown");                                      \
     } while (false)
 
 using test_support::Harness;
@@ -148,30 +174,38 @@ using test_support::UserMapping;
 // Tests
 // -----------------------------------------------------------------------------
 
-void test_table_provider_creates_table() {
+void test_table_provider_creates_table()
+{
     Harness h;
     EXPECT_EQ(h.users.descriptor().logical_name, std::string("users"));
     EXPECT_TRUE(h.users.descriptor().id != 0);
 }
 
-void test_non_transactional_get_missing_returns_nullopt() {
+void test_non_transactional_get_missing_returns_nullopt()
+{
     Harness h;
     auto user = h.users.get("user:missing");
     EXPECT_FALSE(user.has_value());
 }
 
-void test_transactional_put_then_non_transactional_get() {
+void test_transactional_put_then_non_transactional_get()
+{
     Harness h;
 
-    h.txs.run([&](mt::Transaction& tx) {
-        h.users.put(tx, User{
-            .id = "user:1",
-            .email = "a@example.com",
-            .name = "Alice",
-            .active = true,
-            .login_count = 1
-        });
-    });
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        {
+            h.users.put(
+                tx, User{
+                        .id = "user:1",
+                        .email = "a@example.com",
+                        .name = "Alice",
+                        .active = true,
+                        .login_count = 1
+                    }
+            );
+        }
+    );
 
     auto loaded = h.users.get("user:1");
     EXPECT_TRUE(loaded.has_value());
@@ -179,44 +213,52 @@ void test_transactional_put_then_non_transactional_get() {
     // replacing mt::Json with a real JSON type. This assertion verifies presence.
 }
 
-void test_require_missing_throws() {
+void test_require_missing_throws()
+{
     Harness h;
     EXPECT_THROW_AS(h.users.require("missing"), mt::DocumentNotFound);
 }
 
-void test_transactional_read_your_own_point_write() {
+void test_transactional_read_your_own_point_write()
+{
     Harness h;
 
-    h.txs.run([&](mt::Transaction& tx) {
-        h.users.put(tx, User{
-            .id = "user:1",
-            .email = "a@example.com",
-            .name = "Alice",
-            .active = true,
-            .login_count = 1
-        });
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        {
+            h.users.put(
+                tx, User{
+                        .id = "user:1",
+                        .email = "a@example.com",
+                        .name = "Alice",
+                        .active = true,
+                        .login_count = 1
+                    }
+            );
 
-        auto loaded = h.users.get(tx, "user:1");
-        EXPECT_TRUE(loaded.has_value());
-    });
+            auto loaded = h.users.get(tx, "user:1");
+            EXPECT_TRUE(loaded.has_value());
+        }
+    );
 }
 
-void test_delete_hides_document() {
+void test_delete_hides_document()
+{
     Harness h;
 
-    h.txs.run([&](mt::Transaction& tx) {
-        h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"});
-    });
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        { h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"}); }
+    );
 
-    h.txs.run([&](mt::Transaction& tx) {
-        h.users.erase(tx, "user:1");
-    });
+    h.txs.run([&](mt::Transaction& tx) { h.users.erase(tx, "user:1"); });
 
     auto loaded = h.users.get("user:1");
     EXPECT_FALSE(loaded.has_value());
 }
 
-void test_write_write_conflict_aborts_later_committer() {
+void test_write_write_conflict_aborts_later_committer()
+{
     Harness h;
 
     auto tx1 = h.txs.begin();
@@ -229,12 +271,14 @@ void test_write_write_conflict_aborts_later_committer() {
     EXPECT_THROW_AS(tx2.commit(), mt::TransactionConflict);
 }
 
-void test_read_write_conflict_aborts_reader() {
+void test_read_write_conflict_aborts_reader()
+{
     Harness h;
 
-    h.txs.run([&](mt::Transaction& tx) {
-        h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"});
-    });
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        { h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"}); }
+    );
 
     auto tx1 = h.txs.begin();
     auto tx2 = h.txs.begin();
@@ -249,7 +293,8 @@ void test_read_write_conflict_aborts_reader() {
     EXPECT_THROW_AS(tx1.commit(), mt::TransactionConflict);
 }
 
-void test_absent_read_conflicts_with_later_insert() {
+void test_absent_read_conflicts_with_later_insert()
+{
     Harness h;
 
     auto tx1 = h.txs.begin();
@@ -265,12 +310,14 @@ void test_absent_read_conflicts_with_later_insert() {
     EXPECT_THROW_AS(tx1.commit(), mt::TransactionConflict);
 }
 
-void test_list_predicate_conflict_on_insert() {
+void test_list_predicate_conflict_on_insert()
+{
     Harness h;
 
-    h.txs.run([&](mt::Transaction& tx) {
-        h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"});
-    });
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        { h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"}); }
+    );
 
     auto tx1 = h.txs.begin();
     auto tx2 = h.txs.begin();
@@ -285,7 +332,8 @@ void test_list_predicate_conflict_on_insert() {
     EXPECT_THROW_AS(tx1.commit(), mt::TransactionConflict);
 }
 
-void test_query_predicate_conflict_on_matching_insert() {
+void test_query_predicate_conflict_on_matching_insert()
+{
     Harness h;
 
     auto tx1 = h.txs.begin();
@@ -302,31 +350,40 @@ void test_query_predicate_conflict_on_matching_insert() {
     EXPECT_THROW_AS(tx1.commit(), mt::TransactionConflict);
 }
 
-void test_retry_retries_on_conflict() {
+void test_retry_retries_on_conflict()
+{
     Harness h;
 
-    h.txs.run([&](mt::Transaction& tx) {
-        h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"});
-    });
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        { h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"}); }
+    );
 
     int attempts = 0;
 
-    auto fn = [&](mt::Transaction& tx) {
+    auto fn = [&](mt::Transaction& tx)
+    {
         ++attempts;
 
         auto user = h.users.require(tx, "user:1");
         user.login_count += 1;
 
-        if (attempts == 1) {
-            h.txs.run([&](mt::Transaction& other) {
-                h.users.put(other, User{
-                    .id = "user:1",
-                    .email = "external@example.com",
-                    .name = "External",
-                    .active = true,
-                    .login_count = 99
-                });
-            });
+        if (attempts == 1)
+        {
+            h.txs.run(
+                [&](mt::Transaction& other)
+                {
+                    h.users.put(
+                        other, User{
+                                   .id = "user:1",
+                                   .email = "external@example.com",
+                                   .name = "External",
+                                   .active = true,
+                                   .login_count = 99
+                               }
+                    );
+                }
+            );
         }
 
         h.users.put(tx, user);
@@ -339,7 +396,8 @@ void test_retry_retries_on_conflict() {
     EXPECT_EQ(attempts, 2);
 }
 
-void test_rollback_discards_writes() {
+void test_rollback_discards_writes()
+{
     Harness h;
 
     {
@@ -352,7 +410,8 @@ void test_rollback_discards_writes() {
     EXPECT_FALSE(loaded.has_value());
 }
 
-void test_destructor_rolls_back_uncommitted_transaction() {
+void test_destructor_rolls_back_uncommitted_transaction()
+{
     Harness h;
 
     {
@@ -364,7 +423,8 @@ void test_destructor_rolls_back_uncommitted_transaction() {
     EXPECT_FALSE(loaded.has_value());
 }
 
-int main() {
+int main()
+{
     test_table_provider_creates_table();
     test_non_transactional_get_missing_returns_nullopt();
     test_transactional_put_then_non_transactional_get();

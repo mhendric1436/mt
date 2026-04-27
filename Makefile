@@ -5,6 +5,7 @@
 #   make build      # build test binary
 #   make test       # build and run tests
 #   make check      # syntax-check header and run tests
+#   make format     # format source files with clang-format
 #   make clean      # remove build artifacts
 #
 # Override examples:
@@ -12,6 +13,7 @@
 #   make CXXFLAGS="-std=c++20 -O0 -g -Wall -Wextra -pedantic"
 
 CXX ?= c++
+CLANG_FORMAT ?= clang-format
 
 CXXFLAGS ?= -std=c++20 -O0 -g -Wall -Wextra -Wpedantic
 CPPFLAGS ?= -I.
@@ -36,8 +38,9 @@ CORE_HEADERS := \
 	mt_table.hpp \
 	$(CORE_HEADER)
 TEST_SRC    := mt_core_tests.cpp
+FORMAT_FILES := $(CORE_HEADERS) mt_memory_backend.hpp $(TEST_SRC)
 
-.PHONY: all build test check header-check clean rebuild print-config
+.PHONY: all build test check header-check format clean rebuild print-config
 
 all: test
 
@@ -55,6 +58,9 @@ test: build
 
 check: header-check test
 
+format:
+	$(CLANG_FORMAT) -i $(FORMAT_FILES)
+
 # Compile the header as a translation unit to catch standalone header errors.
 # -x c++ forces C++ parsing even though the file extension is .hpp.
 header-check: $(CORE_HEADERS) | $(BUILD_STAMP)
@@ -67,6 +73,7 @@ clean:
 
 print-config:
 	@echo "CXX      = $(CXX)"
+	@echo "CLANG_FORMAT = $(CLANG_FORMAT)"
 	@echo "CPPFLAGS = $(CPPFLAGS)"
 	@echo "CXXFLAGS = $(CXXFLAGS)"
 	@echo "LDFLAGS  = $(LDFLAGS)"

@@ -13,9 +13,11 @@
 // Backend document envelopes and write descriptions.
 // -----------------------------------------------------------------------------
 
-namespace mt {
+namespace mt
+{
 
-struct DocumentEnvelope {
+struct DocumentEnvelope
+{
     CollectionId collection = 0;
     Key key;
     Version version = 0;
@@ -24,7 +26,8 @@ struct DocumentEnvelope {
     Json value;
 };
 
-struct DocumentMetadata {
+struct DocumentMetadata
+{
     CollectionId collection = 0;
     Key key;
     Version version = 0;
@@ -32,20 +35,24 @@ struct DocumentMetadata {
     Hash value_hash;
 };
 
-struct QueryResultEnvelope {
+struct QueryResultEnvelope
+{
     std::vector<DocumentEnvelope> rows;
 };
 
-struct QueryMetadataResult {
+struct QueryMetadataResult
+{
     std::vector<DocumentMetadata> rows;
 };
 
-enum class WriteKind {
+enum class WriteKind
+{
     Put,
     Delete
 };
 
-struct WriteEnvelope {
+struct WriteEnvelope
+{
     CollectionId collection = 0;
     Key key;
     WriteKind kind = WriteKind::Put;
