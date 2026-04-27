@@ -207,7 +207,7 @@ class MemorySession final : public IBackendSession
         QueryResultEnvelope result;
         for (const auto& [key, versions] : c.history)
         {
-            if (prefix && key.rfind(*prefix, 0) != 0)
+            if (!key_matches_prefix(key, prefix))
             {
                 continue;
             }
@@ -253,7 +253,7 @@ class MemorySession final : public IBackendSession
         QueryMetadataResult result;
         for (const auto& [key, current] : c.current)
         {
-            if (prefix && key.rfind(*prefix, 0) != 0)
+            if (!key_matches_prefix(key, prefix))
             {
                 continue;
             }
@@ -421,6 +421,14 @@ class MemorySession final : public IBackendSession
             }
         }
         return best;
+    }
+
+    static bool key_matches_prefix(
+        const std::string& key,
+        const std::optional<std::string>& prefix
+    )
+    {
+        return !prefix || key.rfind(*prefix, 0) == 0;
     }
 
     static std::optional<std::string> key_prefix_from(const QuerySpec& query)

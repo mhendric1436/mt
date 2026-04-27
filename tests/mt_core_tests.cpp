@@ -363,6 +363,50 @@ void test_transactional_query_paginates_after_pending_write_overlay()
     );
 }
 
+void test_non_transactional_query_filters_before_limit()
+{
+    Harness h;
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        {
+            h.users.put(tx, User{.id = "other:1", .email = "o@example.com", .name = "Other"});
+            h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"});
+            h.users.put(tx, User{.id = "user:2", .email = "b@example.com", .name = "Bob"});
+        }
+    );
+
+    auto query = mt::QuerySpec::key_prefix("user:");
+    query.limit = 1;
+
+    auto rows = h.users.query(query);
+    EXPECT_EQ(rows.size(), std::size_t{1});
+    EXPECT_EQ(rows[0].id, std::string("user:1"));
+}
+
+void test_non_transactional_query_filters_before_after_key_and_limit()
+{
+    Harness h;
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        {
+            h.users.put(tx, User{.id = "other:2", .email = "o@example.com", .name = "Other"});
+            h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"});
+            h.users.put(tx, User{.id = "user:2", .email = "b@example.com", .name = "Bob"});
+            h.users.put(tx, User{.id = "user:3", .email = "c@example.com", .name = "Carol"});
+        }
+    );
+
+    auto query = mt::QuerySpec::key_prefix("user:");
+    query.after_key = "user:1";
+    query.limit = 1;
+
+    auto rows = h.users.query(query);
+    EXPECT_EQ(rows.size(), std::size_t{1});
+    EXPECT_EQ(rows[0].id, std::string("user:2"));
+}
+
 void test_delete_hides_document()
 {
     Harness h;
@@ -562,6 +606,8 @@ int main()
     test_transactional_list_reflects_own_pending_replacement();
     test_transactional_list_paginates_after_pending_write_overlay();
     test_transactional_query_paginates_after_pending_write_overlay();
+    test_non_transactional_query_filters_before_limit();
+    test_non_transactional_query_filters_before_after_key_and_limit();
     test_delete_hides_document();
     test_write_write_conflict_aborts_later_committer();
     test_read_write_conflict_aborts_reader();

@@ -216,7 +216,6 @@ interfaces and tests before changing public API behavior.
 
 Good first areas:
 
-- fix memory backend query filtering so predicates apply before pagination
 - implement or explicitly reject unsupported query predicates
 - add JSON predicate tests
 - extend code generation for optional fields and richer JSON shapes
