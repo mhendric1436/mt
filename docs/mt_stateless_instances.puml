@@ -1,0 +1,124 @@
+@startuml mt_stateless_instances
+
+title mt Across Horizontally Scalable Stateless Instances
+
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+actor Client
+
+cloud "Load Balancer" as LoadBalancer
+
+node "Stateless App Instance A" as AppA {
+  [Request Handler] as HandlerA
+  [mt::Database] as DatabaseA
+  [mt::TransactionProvider] as TxProviderA
+  [mt::TableProvider] as TableProviderA
+  [Generated Row Mappings] as MappingsA
+}
+
+node "Stateless App Instance B" as AppB {
+  [Request Handler] as HandlerB
+  [mt::Database] as DatabaseB
+  [mt::TransactionProvider] as TxProviderB
+  [mt::TableProvider] as TableProviderB
+  [Generated Row Mappings] as MappingsB
+}
+
+node "Stateless App Instance N" as AppN {
+  [Request Handler] as HandlerN
+  [mt::Database] as DatabaseN
+  [mt::TransactionProvider] as TxProviderN
+  [mt::TableProvider] as TableProviderN
+  [Generated Row Mappings] as MappingsN
+}
+
+package "Shared Backend Service" {
+  [IDatabaseBackend implementation] as Backend
+  [IBackendSession per transaction] as Session
+  database "Shared Durable Store\nPostgreSQL / SQLite service / other backend" as Store
+  [Version Clock] as Clock
+  [Current Metadata] as Metadata
+  [Document History] as History
+  [Active Transactions] as ActiveTx
+}
+
+Client --> LoadBalancer
+LoadBalancer --> HandlerA
+LoadBalancer --> HandlerB
+LoadBalancer --> HandlerN
+
+HandlerA --> TxProviderA
+HandlerB --> TxProviderB
+HandlerN --> TxProviderN
+
+HandlerA --> TableProviderA
+HandlerB --> TableProviderB
+HandlerN --> TableProviderN
+
+TxProviderA --> DatabaseA
+TxProviderB --> DatabaseB
+TxProviderN --> DatabaseN
+
+TableProviderA --> DatabaseA
+TableProviderB --> DatabaseB
+TableProviderN --> DatabaseN
+
+MappingsA --> TableProviderA
+MappingsB --> TableProviderB
+MappingsN --> TableProviderN
+
+DatabaseA --> Backend
+DatabaseB --> Backend
+DatabaseN --> Backend
+
+Backend --> Session
+Session --> Store
+Session --> Clock
+Session --> Metadata
+Session --> History
+Session --> ActiveTx
+
+note right of AppA
+Instances hold no durable transaction state.
+Each request opens backend sessions through mt.
+end note
+
+note right of Backend
+The backend is responsible for shared coordination:
+- transaction IDs
+- version clock
+- snapshot reads
+- conflict checks
+- atomic commit/rollback
+end note
+
+note bottom of Store
+Horizontal scaling depends on every app instance
+using the same shared backend state.
+Do not use per-instance memory backends for
+cross-instance consistency.
+end note
+
+== Typical Request Flow ==
+
+Client -> LoadBalancer : HTTP/gRPC request
+LoadBalancer -> HandlerA : route to any instance
+HandlerA -> TxProviderA : begin()
+TxProviderA -> Backend : open_session()
+Backend -> Session : create backend session
+Session -> Clock : read_clock()
+Session -> ActiveTx : register tx id
+HandlerA -> TableProviderA : table<Row, Mapping>()
+HandlerA -> TxProviderA : run business logic
+TxProviderA -> Session : snapshot reads / writes
+Session -> Metadata : validate read/write sets
+Session -> Clock : lock + increment on commit
+Session -> History : insert committed versions
+Session -> Metadata : upsert current metadata
+Session -> ActiveTx : unregister tx id
+TxProviderA -> HandlerA : committed result
+HandlerA -> Client : response
+
+@enduml
