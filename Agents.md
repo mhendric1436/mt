@@ -4,7 +4,11 @@
 
 This repository is a small C++20 micro-transaction core library.
 
-- `mt_core.hpp` contains the backend-agnostic transaction core, public table API, query model, mapping concept, and backend interfaces.
+- `mt_core.hpp` is the compatibility umbrella header for the full core API.
+- `mt_json.hpp`, `mt_errors.hpp`, `mt_query.hpp`, `mt_collection.hpp`, and `mt_types.hpp` contain passive public types.
+- `mt_backend.hpp`, `mt_metadata_cache.hpp`, and `mt_database.hpp` contain backend and database shell interfaces.
+- `mt_transaction.hpp` contains transaction state, validation, retry policy, and `TransactionProvider`.
+- `mt_table.hpp` contains the mapping concept, `TableProvider`, and typed `Table` facade.
 - `mt_memory_backend.hpp` contains the in-memory backend used for tests and local development.
 - `mt_core_tests.cpp` contains the current test suite.
 - `Makefile` builds and runs the checks.
@@ -53,17 +57,15 @@ make clean
 5. Expand tests around value round trips, query/list overlays, deletes, limits, and JSON predicates.
 6. Improve `TransactionProvider::retry` ergonomics after behavioral fixes.
 
-## Decomposition Direction
+## Decomposition Layout
 
-If decomposing `mt_core.hpp`, keep a compatibility umbrella header and extract low-risk passive headers first:
+`mt_core.hpp` has been decomposed while preserving the original include path. Prefer narrower includes for implementation files when possible:
 
-- `errors.hpp`
-- `types.hpp`
-- `query.hpp`
-- `collection.hpp`
-- `backend.hpp`
-- `metadata_cache.hpp`
-- `transaction.hpp`
-- `table.hpp`
-
-Move behavior-heavy pieces after passive types and backend interfaces are separated.
+- `mt_errors.hpp`
+- `mt_types.hpp`
+- `mt_query.hpp`
+- `mt_collection.hpp`
+- `mt_backend.hpp`
+- `mt_metadata_cache.hpp`
+- `mt_transaction.hpp`
+- `mt_table.hpp`

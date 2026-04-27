@@ -23,6 +23,18 @@ BUILD_STAMP := $(BUILD_DIR)/.dir
 TEST_BIN  := $(BUILD_DIR)/mt_core_tests
 
 CORE_HEADER := mt_core.hpp
+CORE_HEADERS := \
+	mt_json.hpp \
+	mt_errors.hpp \
+	mt_query.hpp \
+	mt_collection.hpp \
+	mt_types.hpp \
+	mt_backend.hpp \
+	mt_metadata_cache.hpp \
+	mt_database.hpp \
+	mt_transaction.hpp \
+	mt_table.hpp \
+	$(CORE_HEADER)
 TEST_SRC    := mt_core_tests.cpp
 
 .PHONY: all build test check header-check clean rebuild print-config
@@ -35,7 +47,7 @@ $(BUILD_STAMP):
 	mkdir -p $(BUILD_DIR)
 	touch $(BUILD_STAMP)
 
-$(TEST_BIN): $(TEST_SRC) $(CORE_HEADER) | $(BUILD_STAMP)
+$(TEST_BIN): $(TEST_SRC) $(CORE_HEADERS) mt_memory_backend.hpp | $(BUILD_STAMP)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(TEST_SRC) -o $@ $(LDFLAGS) $(LDLIBS)
 
 test: build
@@ -45,7 +57,7 @@ check: header-check test
 
 # Compile the header as a translation unit to catch standalone header errors.
 # -x c++ forces C++ parsing even though the file extension is .hpp.
-header-check: $(CORE_HEADER) | $(BUILD_STAMP)
+header-check: $(CORE_HEADERS) | $(BUILD_STAMP)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -x c++ -fsyntax-only $(CORE_HEADER)
 
 rebuild: clean build
