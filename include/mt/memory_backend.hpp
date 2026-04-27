@@ -200,25 +200,45 @@ class MemorySession final : public IBackendSession
         Version version
     ) override
     {
-        auto result = list_snapshot(
-            collection, ListOptions{.limit = query.limit, .after_key = query.after_key}, version
-        );
-
         auto prefix = key_prefix_from(query);
-        if (!prefix)
-        {
-            return result;
-        }
+        std::lock_guard lock(state_->mutex);
+        const auto& c = collection_ref(collection);
 
-        QueryResultEnvelope filtered;
-        for (const auto& row : result.rows)
+        QueryResultEnvelope result;
+        for (const auto& [key, versions] : c.history)
         {
-            if (row.key.rfind(*prefix, 0) == 0)
+            if (prefix && key.rfind(*prefix, 0) != 0)
             {
-                filtered.rows.push_back(row);
+                continue;
+            }
+            if (query.after_key && key <= *query.after_key)
+            {
+                continue;
+            }
+
+            const auto* best = best_visible_version(versions, version);
+            if (!best || best->deleted)
+            {
+                continue;
+            }
+
+            result.rows.push_back(
+                DocumentEnvelope{
+                    .collection = collection,
+                    .key = key,
+                    .version = best->version,
+                    .deleted = false,
+                    .value_hash = best->hash,
+                    .value = best->value
+                }
+            );
+
+            if (query.limit && result.rows.size() >= *query.limit)
+            {
+                break;
             }
         }
-        return filtered;
+        return result;
     }
 
     QueryMetadataResult query_current_metadata(
@@ -226,25 +246,42 @@ class MemorySession final : public IBackendSession
         const QuerySpec& query
     ) override
     {
-        auto result = list_current_metadata(
-            collection, ListOptions{.limit = query.limit, .after_key = query.after_key}
-        );
-
         auto prefix = key_prefix_from(query);
-        if (!prefix)
-        {
-            return result;
-        }
+        std::lock_guard lock(state_->mutex);
+        const auto& c = collection_ref(collection);
 
-        QueryMetadataResult filtered;
-        for (const auto& row : result.rows)
+        QueryMetadataResult result;
+        for (const auto& [key, current] : c.current)
         {
-            if (row.key.rfind(*prefix, 0) == 0)
+            if (prefix && key.rfind(*prefix, 0) != 0)
             {
-                filtered.rows.push_back(row);
+                continue;
+            }
+            if (query.after_key && key <= *query.after_key)
+            {
+                continue;
+            }
+            if (current.deleted)
+            {
+                continue;
+            }
+
+            result.rows.push_back(
+                DocumentMetadata{
+                    .collection = collection,
+                    .key = key,
+                    .version = current.version,
+                    .deleted = current.deleted,
+                    .value_hash = current.hash
+                }
+            );
+
+            if (query.limit && result.rows.size() >= *query.limit)
+            {
+                break;
             }
         }
-        return filtered;
+        return result;
     }
 
     QueryResultEnvelope list_snapshot(
@@ -264,18 +301,7 @@ class MemorySession final : public IBackendSession
                 continue;
             }
 
-            const MemoryVersion* best = nullptr;
-            for (const auto& candidate : versions)
-            {
-                if (candidate.version <= version)
-                {
-                    if (!best || candidate.version > best->version)
-                    {
-                        best = &candidate;
-                    }
-                }
-            }
-
+            const auto* best = best_visible_version(versions, version);
             if (!best || best->deleted)
             {
                 continue;
@@ -378,6 +404,25 @@ class MemorySession final : public IBackendSession
     }
 
   private:
+    static const MemoryVersion* best_visible_version(
+        const std::vector<MemoryVersion>& versions,
+        Version version
+    )
+    {
+        const MemoryVersion* best = nullptr;
+        for (const auto& candidate : versions)
+        {
+            if (candidate.version <= version)
+            {
+                if (!best || candidate.version > best->version)
+                {
+                    best = &candidate;
+                }
+            }
+        }
+        return best;
+    }
+
     static std::optional<std::string> key_prefix_from(const QuerySpec& query)
     {
         for (const auto& predicate : query.predicates)

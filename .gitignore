@@ -2,6 +2,7 @@
 build/
 out/
 cmake-build-*/
+tags
 
 # Compiled binaries and objects
 *.o
