@@ -30,6 +30,8 @@ class IBackendSession
     virtual Version lock_clock_and_read() = 0;
     virtual Version increment_clock_and_return() = 0;
 
+    virtual TxId create_transaction_id() = 0;
+
     virtual void register_active_transaction(
         TxId tx_id,
         Version start_version

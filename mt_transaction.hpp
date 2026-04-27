@@ -10,7 +10,6 @@
 #include <functional>
 #include <memory>
 #include <optional>
-#include <random>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -26,15 +25,6 @@
 
 namespace mt
 {
-
-inline TxId generate_tx_id()
-{
-    static thread_local std::mt19937_64 rng{std::random_device{}()};
-
-    auto next = [] { return rng(); };
-
-    return std::to_string(next()) + "-" + std::to_string(next());
-}
 
 struct DocumentId
 {
@@ -567,7 +557,7 @@ class TransactionProvider
         try
         {
             auto start_version = session->read_clock();
-            auto tx_id = generate_tx_id();
+            auto tx_id = session->create_transaction_id();
             session->register_active_transaction(tx_id, start_version);
 
             return Transaction(*db_, std::move(session), std::move(tx_id), start_version);

@@ -46,6 +46,7 @@ struct MemoryState
     std::mutex mutex;
     Version clock = 0;
     CollectionId next_collection_id = 1;
+    std::uint64_t next_transaction_id = 1;
     std::map<std::string, CollectionDescriptor> descriptors_by_name;
     std::map<CollectionId, MemoryCollection> collections;
     std::unordered_set<TxId> active_transactions;
@@ -104,6 +105,12 @@ class MemorySession final : public IBackendSession
             throw BackendError("clock must be locked before increment");
         }
         return ++state_->clock;
+    }
+
+    TxId create_transaction_id() override
+    {
+        std::lock_guard lock(state_->mutex);
+        return "memory:" + std::to_string(state_->next_transaction_id++);
     }
 
     void register_active_transaction(
