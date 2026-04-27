@@ -21,7 +21,7 @@ Use the existing Makefile targets:
 make check
 ```
 
-This runs a header syntax check and the test binary. A `#pragma once in main file` warning from compiling `mt_core.hpp` directly is expected.
+This runs a header syntax check through `mt_core.cpp` and the test binary.
 
 Useful targeted commands:
 
