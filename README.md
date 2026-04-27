@@ -32,6 +32,28 @@ Known limitations:
 - migrations are modeled but explicitly rejected by the memory backend
 - `TransactionProvider::retry` currently requires a named callable
 
+## Key Findings
+
+Current priority areas before treating `mt` as a stable library:
+
+1. Define the backend contract more rigorously, including atomicity, clock locking,
+   session lifetime, rollback behavior, transaction ID ownership, and required isolation
+   behavior.
+2. Split backend capability reporting from runtime rejection so callers and tests can
+   know which query, ordering, migration, and index features a backend supports.
+3. Harden transaction commit semantics by documenting and testing the required atomic
+   relationship between history insertion, current-row upserts, and backend commits.
+4. Improve predicate and query validation, especially around read-your-writes behavior
+   for JSON predicates and backend-specific query limitations.
+5. Add production backend skeletons, starting with SQLite or PostgreSQL, to prove the
+   interface outside the in-memory backend.
+6. Expand generated schema validation so invalid metadata fails with clear diagnostics
+   before C++ generation.
+7. Polish the public API, including retry callable ergonomics, constness, parameter
+   passing, and table/query construction.
+8. Add open-source project infrastructure such as a license, CI workflow, contribution
+   guide, install guidance, and backend implementation documentation.
+
 ## Requirements
 
 - C++20 compiler
@@ -58,6 +80,8 @@ Useful targets:
 make build
 make test
 make format
+make docs-png
+make clean-docs
 make clean
 ```
 
