@@ -1,4 +1,4 @@
-# mt_codegen Schema Format
+# `mt_codegen.py` Schema Format
 
 `mt_codegen.py` generates a C++ row struct and its matching mt table mapping type from
 JSON metadata.
