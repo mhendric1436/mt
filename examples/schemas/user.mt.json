@@ -1,0 +1,18 @@
+{
+  "namespace": "mt_examples",
+  "table_name": "users",
+  "class_name": "User",
+  "key": "id",
+  "schema_version": 1,
+  "fields": [
+    {"name": "id", "type": "string", "required": true},
+    {"name": "email", "type": "string", "required": true},
+    {"name": "name", "type": "string", "required": true},
+    {"name": "active", "type": "bool", "default": true},
+    {"name": "login_count", "type": "int64", "default": 0}
+  ],
+  "indexes": [
+    {"name": "email", "path": "$.email", "unique": true},
+    {"name": "active", "path": "$.active"}
+  ]
+}

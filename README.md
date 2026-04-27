@@ -15,6 +15,7 @@ but the public API and backend contracts may still change.
 Implemented:
 
 - typed table facade through user-defined mappings
+- code generation for row and mapping headers from JSON metadata
 - backend-neutral transaction provider
 - snapshot reads
 - optimistic read/write conflict detection
@@ -61,7 +62,37 @@ make clean
 ```
 
 `make check` syntax-checks the public headers through `mt_core.cpp` and runs the test
-binary.
+binaries.
+
+## Code Generation
+
+`tools/mt_codegen.py` generates a row struct and `FooMapping` class from JSON metadata.
+The library repository only includes example schemas for documentation and tests. Users
+should keep their application schemas in their own project and pass those local paths to
+the generator.
+
+Example:
+
+```sh
+python3 tools/mt_codegen.py ./my_schemas/user.mt.json -o ./generated/user.hpp
+```
+
+The example schema in this repository lives at:
+
+```text
+examples/schemas/user.mt.json
+```
+
+`make check` generates this example into `build/generated/user.hpp` and compiles a small
+test against it. Generated files under `build/` are build artifacts and are not intended
+to be committed.
+
+Supported field types in the first generator version:
+
+- `string`
+- `bool`
+- `int64`
+- `double`
 
 ## Quick Example
 
@@ -150,7 +181,10 @@ int main()
 - `mt_transaction.hpp`: transaction state, validation, retry provider
 - `mt_table.hpp`: mapping concept and typed table facade
 - `mt_memory_backend.hpp`: in-memory backend
+- `tools/mt_codegen.py`: JSON metadata to C++ header generator
+- `examples/schemas/user.mt.json`: example schema used by documentation and tests
 - `mt_core_tests.cpp`: test suite
+- `mt_codegen_tests.cpp`: generated-code test suite
 - `mt_core.cpp`: header syntax-check translation unit
 
 ## Backend Model
@@ -185,6 +219,7 @@ Good first areas:
 - fix memory backend query filtering so predicates apply before pagination
 - implement or explicitly reject unsupported query predicates
 - add JSON predicate tests
+- extend code generation for optional fields and richer JSON shapes
 - improve retry callable ergonomics
 
 ## License

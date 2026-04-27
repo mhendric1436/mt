@@ -23,6 +23,8 @@ LDLIBS   ?=
 BUILD_DIR := build
 BUILD_STAMP := $(BUILD_DIR)/.dir
 TEST_BIN  := $(BUILD_DIR)/mt_core_tests
+CODEGEN_TEST_BIN := $(BUILD_DIR)/mt_codegen_tests
+GENERATED_DIR := $(BUILD_DIR)/generated
 
 CORE_HEADER := mt_core.hpp
 CORE_HEADERS := \
@@ -38,14 +40,18 @@ CORE_HEADERS := \
 	mt_table.hpp \
 	$(CORE_HEADER)
 TEST_SRC    := mt_core_tests.cpp
+CODEGEN_TEST_SRC := mt_codegen_tests.cpp
 HEADER_CHECK_SRC := mt_core.cpp
-FORMAT_FILES := $(CORE_HEADERS) mt_memory_backend.hpp $(HEADER_CHECK_SRC) $(TEST_SRC)
+CODEGEN := python3 tools/mt_codegen.py
+EXAMPLE_SCHEMA := examples/schemas/user.mt.json
+GENERATED_EXAMPLE_HEADER := $(GENERATED_DIR)/user.hpp
+FORMAT_FILES := $(CORE_HEADERS) mt_memory_backend.hpp $(HEADER_CHECK_SRC) $(TEST_SRC) $(CODEGEN_TEST_SRC)
 
-.PHONY: all build test check header-check format clean rebuild print-config
+.PHONY: all build test check codegen-examples header-check format clean rebuild print-config
 
 all: test
 
-build: $(TEST_BIN)
+build: $(TEST_BIN) $(CODEGEN_TEST_BIN)
 
 $(BUILD_STAMP):
 	mkdir -p $(BUILD_DIR)
@@ -54,10 +60,22 @@ $(BUILD_STAMP):
 $(TEST_BIN): $(TEST_SRC) $(CORE_HEADERS) mt_memory_backend.hpp | $(BUILD_STAMP)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(TEST_SRC) -o $@ $(LDFLAGS) $(LDLIBS)
 
+$(GENERATED_DIR): | $(BUILD_STAMP)
+	mkdir -p $(GENERATED_DIR)
+
+$(GENERATED_EXAMPLE_HEADER): $(EXAMPLE_SCHEMA) tools/mt_codegen.py | $(GENERATED_DIR)
+	$(CODEGEN) $(EXAMPLE_SCHEMA) -o $@
+
+$(CODEGEN_TEST_BIN): $(CODEGEN_TEST_SRC) $(GENERATED_EXAMPLE_HEADER) $(CORE_HEADERS) mt_memory_backend.hpp | $(BUILD_STAMP)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(CODEGEN_TEST_SRC) -o $@ $(LDFLAGS) $(LDLIBS)
+
 test: build
 	./$(TEST_BIN)
+	./$(CODEGEN_TEST_BIN)
 
-check: header-check test
+check: codegen-examples header-check test
+
+codegen-examples: $(GENERATED_EXAMPLE_HEADER)
 
 format:
 	$(CLANG_FORMAT) -i $(FORMAT_FILES)
@@ -75,6 +93,7 @@ clean:
 print-config:
 	@echo "CXX      = $(CXX)"
 	@echo "CLANG_FORMAT = $(CLANG_FORMAT)"
+	@echo "CODEGEN  = $(CODEGEN)"
 	@echo "CPPFLAGS = $(CPPFLAGS)"
 	@echo "CXXFLAGS = $(CXXFLAGS)"
 	@echo "LDFLAGS  = $(LDFLAGS)"
