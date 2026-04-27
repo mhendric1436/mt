@@ -230,6 +230,139 @@ void test_transactional_read_your_own_point_write()
     );
 }
 
+void test_transactional_list_reads_own_pending_put()
+{
+    Harness h;
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        {
+            h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"});
+
+            auto listed = h.users.list(tx);
+            EXPECT_EQ(listed.size(), std::size_t{1});
+            EXPECT_EQ(listed[0].id, std::string("user:1"));
+            EXPECT_EQ(listed[0].email, std::string("a@example.com"));
+        }
+    );
+}
+
+void test_transactional_query_reads_own_pending_matching_put()
+{
+    Harness h;
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        {
+            h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"});
+            h.users.put(tx, User{.id = "other:1", .email = "o@example.com", .name = "Other"});
+
+            auto rows = h.users.query(tx, mt::QuerySpec::key_prefix("user:"));
+            EXPECT_EQ(rows.size(), std::size_t{1});
+            EXPECT_EQ(rows[0].id, std::string("user:1"));
+        }
+    );
+}
+
+void test_transactional_list_hides_own_pending_delete()
+{
+    Harness h;
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        { h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"}); }
+    );
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        {
+            h.users.erase(tx, "user:1");
+
+            auto listed = h.users.list(tx);
+            EXPECT_TRUE(listed.empty());
+        }
+    );
+}
+
+void test_transactional_list_reflects_own_pending_replacement()
+{
+    Harness h;
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        { h.users.put(tx, User{.id = "user:1", .email = "old@example.com", .name = "Old"}); }
+    );
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        {
+            h.users.put(tx, User{.id = "user:1", .email = "new@example.com", .name = "New"});
+
+            auto listed = h.users.list(tx);
+            EXPECT_EQ(listed.size(), std::size_t{1});
+            EXPECT_EQ(listed[0].email, std::string("new@example.com"));
+            EXPECT_EQ(listed[0].name, std::string("New"));
+        }
+    );
+}
+
+void test_transactional_list_paginates_after_pending_write_overlay()
+{
+    Harness h;
+
+    h.txs.run([&](mt::Transaction& tx)
+              { h.users.put(tx, User{.id = "user:2", .email = "b@example.com", .name = "Bob"}); });
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        {
+            h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"});
+            h.users.put(tx, User{.id = "user:3", .email = "c@example.com", .name = "Carol"});
+
+            auto first_page = h.users.list(tx, mt::ListOptions{.limit = 2});
+            EXPECT_EQ(first_page.size(), std::size_t{2});
+            EXPECT_EQ(first_page[0].id, std::string("user:1"));
+            EXPECT_EQ(first_page[1].id, std::string("user:2"));
+
+            auto second_page = h.users.list(tx, mt::ListOptions{.after_key = "user:1"});
+            EXPECT_EQ(second_page.size(), std::size_t{2});
+            EXPECT_EQ(second_page[0].id, std::string("user:2"));
+            EXPECT_EQ(second_page[1].id, std::string("user:3"));
+        }
+    );
+}
+
+void test_transactional_query_paginates_after_pending_write_overlay()
+{
+    Harness h;
+
+    h.txs.run([&](mt::Transaction& tx)
+              { h.users.put(tx, User{.id = "user:2", .email = "b@example.com", .name = "Bob"}); });
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        {
+            auto query = mt::QuerySpec::key_prefix("user:");
+            query.limit = 2;
+
+            h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"});
+            h.users.put(tx, User{.id = "user:3", .email = "c@example.com", .name = "Carol"});
+
+            auto rows = h.users.query(tx, query);
+            EXPECT_EQ(rows.size(), std::size_t{2});
+            EXPECT_EQ(rows[0].id, std::string("user:1"));
+            EXPECT_EQ(rows[1].id, std::string("user:2"));
+
+            query.limit = std::nullopt;
+            query.after_key = "user:1";
+            auto after_rows = h.users.query(tx, query);
+            EXPECT_EQ(after_rows.size(), std::size_t{2});
+            EXPECT_EQ(after_rows[0].id, std::string("user:2"));
+            EXPECT_EQ(after_rows[1].id, std::string("user:3"));
+        }
+    );
+}
+
 void test_delete_hides_document()
 {
     Harness h;
@@ -423,6 +556,12 @@ int main()
     test_transactional_put_then_non_transactional_get();
     test_require_missing_throws();
     test_transactional_read_your_own_point_write();
+    test_transactional_list_reads_own_pending_put();
+    test_transactional_query_reads_own_pending_matching_put();
+    test_transactional_list_hides_own_pending_delete();
+    test_transactional_list_reflects_own_pending_replacement();
+    test_transactional_list_paginates_after_pending_write_overlay();
+    test_transactional_query_paginates_after_pending_write_overlay();
     test_delete_hides_document();
     test_write_write_conflict_aborts_later_committer();
     test_read_write_conflict_aborts_reader();

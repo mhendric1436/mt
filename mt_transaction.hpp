@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cstddef>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -300,9 +301,9 @@ class Transaction
     {
         ensure_open();
 
-        auto result = session_->list_snapshot(collection, options, start_version_);
-        record_predicate_read(collection, QuerySpec{}, options, true, result);
-        return overlay_writes_for_collection(collection, std::move(result));
+        auto result = session_->list_snapshot(collection, ListOptions{}, start_version_);
+        record_predicate_read(collection, QuerySpec{}, ListOptions{}, true, result);
+        return overlay_list_writes(collection, options, std::move(result));
     }
 
     QueryResultEnvelope query_documents(
@@ -312,9 +313,13 @@ class Transaction
     {
         ensure_open();
 
-        auto result = session_->query_snapshot(collection, query, start_version_);
-        record_predicate_read(collection, query, ListOptions{}, false, result);
-        return overlay_writes_for_collection(collection, std::move(result));
+        auto snapshot_query = query;
+        snapshot_query.limit = std::nullopt;
+        snapshot_query.after_key = std::nullopt;
+
+        auto result = session_->query_snapshot(collection, snapshot_query, start_version_);
+        record_predicate_read(collection, snapshot_query, ListOptions{}, false, result);
+        return overlay_query_writes(collection, query, std::move(result));
     }
 
     void put_document(
@@ -402,17 +407,146 @@ class Transaction
         predicate_read_set_.push_back(std::move(record));
     }
 
-    QueryResultEnvelope overlay_writes_for_collection(
+    static DocumentEnvelope envelope_from_write(
         CollectionId collection,
+        const WriteEnvelope& write,
+        Version version
+    )
+    {
+        return DocumentEnvelope{
+            .collection = collection,
+            .key = write.key,
+            .version = version,
+            .deleted = write.kind == WriteKind::Delete,
+            .value_hash = write.value_hash,
+            .value = write.value
+        };
+    }
+
+    static bool matches_after_key(
+        const Key& key,
+        const std::optional<Key>& after_key
+    )
+    {
+        return !after_key || key > *after_key;
+    }
+
+    static bool matches_list(
+        const DocumentEnvelope& doc,
+        const ListOptions& options
+    )
+    {
+        return !doc.deleted && matches_after_key(doc.key, options.after_key);
+    }
+
+    static bool matches_query(
+        const DocumentEnvelope& doc,
+        const QuerySpec& query
+    )
+    {
+        if (doc.deleted || !matches_after_key(doc.key, query.after_key))
+        {
+            return false;
+        }
+
+        for (const auto& predicate : query.predicates)
+        {
+            switch (predicate.op)
+            {
+            case QueryOp::KeyPrefix:
+                if (doc.key.rfind(predicate.text, 0) != 0)
+                {
+                    return false;
+                }
+                break;
+
+            case QueryOp::JsonEquals:
+            case QueryOp::JsonContains:
+                throw MappingError("pending write overlay does not support JSON query predicates");
+            }
+        }
+
+        return true;
+    }
+
+    template <class Matches>
+    QueryResultEnvelope overlay_writes(
+        CollectionId collection,
+        QueryResultEnvelope result,
+        std::optional<std::size_t> limit,
+        Matches matches
+    )
+    {
+        std::map<Key, DocumentEnvelope> rows_by_key;
+
+        for (auto& row : result.rows)
+        {
+            if (row.collection == collection && !row.deleted)
+            {
+                rows_by_key[row.key] = std::move(row);
+            }
+        }
+
+        for (const auto& [id, write] : write_set_)
+        {
+            if (id.collection != collection)
+            {
+                continue;
+            }
+
+            if (write.kind == WriteKind::Delete)
+            {
+                rows_by_key.erase(write.key);
+                continue;
+            }
+
+            auto doc = envelope_from_write(collection, write, start_version_);
+            if (matches(doc))
+            {
+                rows_by_key[write.key] = std::move(doc);
+            }
+            else
+            {
+                rows_by_key.erase(write.key);
+            }
+        }
+
+        QueryResultEnvelope overlaid;
+        for (auto& [_, row] : rows_by_key)
+        {
+            overlaid.rows.push_back(std::move(row));
+
+            if (limit && overlaid.rows.size() >= *limit)
+            {
+                break;
+            }
+        }
+
+        return overlaid;
+    }
+
+    QueryResultEnvelope overlay_list_writes(
+        CollectionId collection,
+        const ListOptions& options,
         QueryResultEnvelope result
     )
     {
-        // Conservative first version: returned query/list results are the snapshot
-        // rows. Local uncommitted writes are visible to point reads and commits.
-        // A production version should evaluate pending writes against QuerySpec and
-        // merge/delete them here so read-your-writes also applies to queries.
-        (void)collection;
-        return result;
+        return overlay_writes(
+            collection, std::move(result), options.limit,
+            [&](const DocumentEnvelope& doc) { return matches_list(doc, options); }
+        );
+    }
+
+    QueryResultEnvelope overlay_query_writes(
+        CollectionId collection,
+        const QuerySpec& query,
+        QueryResultEnvelope result
+    )
+    {
+        return overlay_writes(
+            collection, std::move(result), query.limit,
+            [&](const DocumentEnvelope& doc) { return matches_query(doc, query); }
+        );
     }
 
     void validate_read_set()

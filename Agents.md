@@ -44,17 +44,16 @@ make clean
 
 - `mt::Json` is a small built-in JSON value type with stable canonical hashing.
 - Transactional point reads support read-your-own-writes.
-- Transactional `list` and `query` currently return snapshot rows without overlaying pending transaction writes.
+- Transactional `list` and `query` overlay pending transaction writes for read-your-writes semantics.
 - The memory backend only implements key-prefix query filtering; JSON predicates and index semantics are not fully implemented.
 - The memory backend is intended for tests and local development, not as a production storage engine.
 
 ## Suggested Fix Priority
 
-1. Add pending-write overlays for transactional `list` and `query`.
-2. Fix memory backend query filtering so predicates apply before limit/pagination.
-3. Implement or explicitly reject unsupported query predicates.
-4. Expand tests around query/list overlays, deletes, limits, and JSON predicates.
-5. Improve `TransactionProvider::retry` ergonomics after behavioral fixes.
+1. Fix memory backend query filtering so predicates apply before limit/pagination.
+2. Implement or explicitly reject unsupported query predicates.
+3. Expand tests around query limits, JSON predicates, and unsupported-query behavior.
+4. Improve `TransactionProvider::retry` ergonomics after behavioral fixes.
 
 ## Decomposition Layout
 
