@@ -50,14 +50,13 @@ make clean
 - `mt::Json` is a small built-in JSON value type with stable canonical hashing.
 - Transactional point reads support read-your-own-writes.
 - Transactional `list` and `query` overlay pending transaction writes for read-your-writes semantics.
-- The memory backend applies key-prefix query filtering before pagination; JSON predicates and index semantics are not fully implemented.
+- The memory backend supports key-prefix and JSON equality predicates, applies filtering before pagination, enforces unique indexes, and rejects unsupported query/migration features explicitly.
 - The memory backend is intended for tests and local development, not as a production storage engine.
 
 ## Suggested Fix Priority
 
-1. Implement or explicitly reject unsupported query predicates.
-2. Expand tests around JSON predicates, unsupported-query behavior, and ordering semantics.
-3. Improve `TransactionProvider::retry` ergonomics after behavioral fixes.
+1. Expand tests around remaining backend behavior and ordering semantics.
+2. Improve `TransactionProvider::retry` ergonomics after behavioral fixes.
 
 ## Decomposition Layout
 

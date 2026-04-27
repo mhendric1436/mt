@@ -27,9 +27,9 @@ Implemented:
 Known limitations:
 
 - the memory backend is not a production storage engine
-- memory backend query filtering currently supports key-prefix predicates only
-- JSON query predicates and index semantics are not fully implemented
-- migrations are modeled but not applied by the memory backend
+- memory backend query filtering supports key-prefix and JSON equality predicates only
+- JSON contains predicates and non-key ordering are explicitly rejected by the memory backend
+- migrations are modeled but explicitly rejected by the memory backend
 - `TransactionProvider::retry` currently requires a named callable
 
 ## Requirements
@@ -239,8 +239,7 @@ interfaces and tests before changing public API behavior.
 
 Good first areas:
 
-- implement or explicitly reject unsupported query predicates
-- add JSON predicate tests
+- extend JSON predicate support beyond equality
 - extend code generation for optional fields and richer JSON shapes
 - improve retry callable ergonomics
 

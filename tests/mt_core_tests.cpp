@@ -80,6 +80,16 @@ struct UserMapping
     }
 };
 
+struct MigratingUserMapping : UserMapping
+{
+    static constexpr std::string_view table_name = "migrating_users";
+
+    static std::vector<mt::Migration> migrations()
+    {
+        return {mt::Migration{.from_version = 1, .to_version = 2, .transform = [](mt::Json&) {}}};
+    }
+};
+
 struct Harness
 {
     std::shared_ptr<mt::backends::memory::MemoryBackend> backend =
@@ -116,6 +126,7 @@ struct Harness
     } while (false)
 
 using test_support::Harness;
+using test_support::MigratingUserMapping;
 using test_support::User;
 using test_support::UserMapping;
 
@@ -407,6 +418,76 @@ void test_non_transactional_query_filters_before_after_key_and_limit()
     EXPECT_EQ(rows[0].id, std::string("user:2"));
 }
 
+void test_memory_backend_query_supports_json_equals()
+{
+    Harness h;
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        {
+            h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"});
+            h.users.put(tx, User{.id = "user:2", .email = "b@example.com", .name = "Bob"});
+        }
+    );
+
+    auto rows = h.users.query(mt::QuerySpec::where_json_eq("$.email", "b@example.com"));
+    EXPECT_EQ(rows.size(), std::size_t{1});
+    EXPECT_EQ(rows[0].id, std::string("user:2"));
+}
+
+void test_memory_backend_rejects_json_contains_query()
+{
+    Harness h;
+
+    mt::QuerySpec query;
+    query.predicates.push_back(
+        mt::QueryPredicate{
+            .op = mt::QueryOp::JsonContains,
+            .path = "$",
+            .value = mt::Json::object({{"email", "a@example.com"}})
+        }
+    );
+
+    EXPECT_THROW_AS(h.users.query(query), mt::BackendError);
+}
+
+void test_memory_backend_rejects_non_key_ordering()
+{
+    Harness h;
+
+    auto query = mt::QuerySpec::key_prefix("user:");
+    query.order_by_key = false;
+
+    EXPECT_THROW_AS(h.users.query(query), mt::BackendError);
+}
+
+void test_memory_backend_enforces_unique_indexes()
+{
+    Harness h;
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        { h.users.put(tx, User{.id = "user:1", .email = "same@example.com", .name = "Alice"}); }
+    );
+
+    EXPECT_THROW_AS(
+        h.txs.run(
+            [&](mt::Transaction& tx)
+            { h.users.put(tx, User{.id = "user:2", .email = "same@example.com", .name = "Bob"}); }
+        ),
+        mt::BackendError
+    );
+}
+
+void test_memory_backend_rejects_migrations()
+{
+    auto backend = std::make_shared<mt::backends::memory::MemoryBackend>();
+    mt::Database db{backend};
+    mt::TableProvider tables{db};
+
+    EXPECT_THROW_AS((tables.table<User, MigratingUserMapping>()), mt::BackendError);
+}
+
 void test_delete_hides_document()
 {
     Harness h;
@@ -608,6 +689,11 @@ int main()
     test_transactional_query_paginates_after_pending_write_overlay();
     test_non_transactional_query_filters_before_limit();
     test_non_transactional_query_filters_before_after_key_and_limit();
+    test_memory_backend_query_supports_json_equals();
+    test_memory_backend_rejects_json_contains_query();
+    test_memory_backend_rejects_non_key_ordering();
+    test_memory_backend_enforces_unique_indexes();
+    test_memory_backend_rejects_migrations();
     test_delete_hides_document();
     test_write_write_conflict_aborts_later_committer();
     test_read_write_conflict_aborts_reader();

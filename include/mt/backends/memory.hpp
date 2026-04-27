@@ -7,6 +7,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <unordered_set>
@@ -37,6 +38,7 @@ struct MemoryVersion
 struct MemoryCollection
 {
     CollectionDescriptor descriptor;
+    std::vector<IndexSpec> indexes;
     std::map<std::string, MemoryVersion> current;
     std::map<std::string, std::vector<MemoryVersion>> history;
 };
@@ -200,17 +202,13 @@ class MemorySession final : public IBackendSession
         Version version
     ) override
     {
-        auto prefix = key_prefix_from(query);
+        validate_supported_query(query);
         std::lock_guard lock(state_->mutex);
         const auto& c = collection_ref(collection);
 
         QueryResultEnvelope result;
         for (const auto& [key, versions] : c.history)
         {
-            if (!key_matches_prefix(key, prefix))
-            {
-                continue;
-            }
             if (query.after_key && key <= *query.after_key)
             {
                 continue;
@@ -218,6 +216,10 @@ class MemorySession final : public IBackendSession
 
             const auto* best = best_visible_version(versions, version);
             if (!best || best->deleted)
+            {
+                continue;
+            }
+            if (!matches_query(key, best->value, query))
             {
                 continue;
             }
@@ -246,22 +248,22 @@ class MemorySession final : public IBackendSession
         const QuerySpec& query
     ) override
     {
-        auto prefix = key_prefix_from(query);
+        validate_supported_query(query);
         std::lock_guard lock(state_->mutex);
         const auto& c = collection_ref(collection);
 
         QueryMetadataResult result;
         for (const auto& [key, current] : c.current)
         {
-            if (!key_matches_prefix(key, prefix))
-            {
-                continue;
-            }
             if (query.after_key && key <= *query.after_key)
             {
                 continue;
             }
             if (current.deleted)
+            {
+                continue;
+            }
+            if (!matches_query(key, current.value, query))
             {
                 continue;
             }
@@ -373,6 +375,7 @@ class MemorySession final : public IBackendSession
     {
         std::lock_guard lock(state_->mutex);
         auto& c = collection_mut(collection);
+        check_unique_constraints(c, write);
 
         MemoryVersion version{
             .version = commit_version,
@@ -393,6 +396,7 @@ class MemorySession final : public IBackendSession
     {
         std::lock_guard lock(state_->mutex);
         auto& c = collection_mut(collection);
+        check_unique_constraints(c, write);
 
         c.current[write.key] = MemoryVersion{
             .version = commit_version,
@@ -423,24 +427,142 @@ class MemorySession final : public IBackendSession
         return best;
     }
 
-    static bool key_matches_prefix(
-        const std::string& key,
-        const std::optional<std::string>& prefix
-    )
+    static void validate_supported_query(const QuerySpec& query)
     {
-        return !prefix || key.rfind(*prefix, 0) == 0;
+        if (!query.order_by_key)
+        {
+            throw BackendError("memory backend only supports key ordering");
+        }
+
+        for (const auto& predicate : query.predicates)
+        {
+            if (predicate.op == QueryOp::JsonContains)
+            {
+                throw BackendError("memory backend does not support JSON contains predicates");
+            }
+        }
     }
 
-    static std::optional<std::string> key_prefix_from(const QuerySpec& query)
+    static bool matches_query(
+        const std::string& key,
+        const Json& value,
+        const QuerySpec& query
+    )
     {
         for (const auto& predicate : query.predicates)
         {
-            if (predicate.op == QueryOp::KeyPrefix)
+            switch (predicate.op)
             {
-                return predicate.text;
+            case QueryOp::KeyPrefix:
+                if (key.rfind(predicate.text, 0) != 0)
+                {
+                    return false;
+                }
+                break;
+
+            case QueryOp::JsonEquals:
+                if (auto field = json_path_value(value, predicate.path))
+                {
+                    if (*field != predicate.value)
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    return false;
+                }
+                break;
+
+            case QueryOp::JsonContains:
+                throw BackendError("memory backend does not support JSON contains predicates");
             }
         }
-        return std::nullopt;
+
+        return true;
+    }
+
+    static std::optional<Json> json_path_value(
+        const Json& value,
+        const std::string& path
+    )
+    {
+        if (path == "$")
+        {
+            return value;
+        }
+        if (path.rfind("$.", 0) != 0)
+        {
+            throw BackendError("memory backend only supports JSON paths starting with '$.'");
+        }
+
+        const Json* current = &value;
+        std::size_t start = 2;
+        while (start <= path.size())
+        {
+            auto end = path.find('.', start);
+            auto segment =
+                path.substr(start, end == std::string::npos ? std::string::npos : end - start);
+            if (segment.empty() || !current->is_object())
+            {
+                return std::nullopt;
+            }
+
+            const auto& object = current->as_object();
+            auto it = object.find(segment);
+            if (it == object.end())
+            {
+                return std::nullopt;
+            }
+
+            current = &it->second;
+            if (end == std::string::npos)
+            {
+                break;
+            }
+            start = end + 1;
+        }
+
+        return *current;
+    }
+
+    static void check_unique_constraints(
+        const MemoryCollection& collection,
+        const WriteEnvelope& write
+    )
+    {
+        if (write.kind == WriteKind::Delete)
+        {
+            return;
+        }
+
+        for (const auto& index : collection.indexes)
+        {
+            if (!index.unique)
+            {
+                continue;
+            }
+
+            auto write_value = json_path_value(write.value, index.json_path);
+            if (!write_value)
+            {
+                continue;
+            }
+
+            for (const auto& [key, current] : collection.current)
+            {
+                if (key == write.key || current.deleted)
+                {
+                    continue;
+                }
+
+                auto current_value = json_path_value(current.value, index.json_path);
+                if (current_value && *current_value == *write_value)
+                {
+                    throw BackendError("memory backend unique index constraint violation");
+                }
+            }
+        }
     }
 
     void require_backend_tx() const
@@ -509,6 +631,11 @@ class MemoryBackend final : public IDatabaseBackend
     {
         std::lock_guard lock(state_->mutex);
 
+        if (!spec.migrations.empty())
+        {
+            throw BackendError("memory backend does not support collection migrations");
+        }
+
         auto existing = state_->descriptors_by_name.find(spec.logical_name);
         if (existing != state_->descriptors_by_name.end())
         {
@@ -523,6 +650,7 @@ class MemoryBackend final : public IDatabaseBackend
 
         MemoryCollection collection;
         collection.descriptor = descriptor;
+        collection.indexes = spec.indexes;
 
         state_->descriptors_by_name[spec.logical_name] = descriptor;
         state_->collections[descriptor.id] = std::move(collection);
