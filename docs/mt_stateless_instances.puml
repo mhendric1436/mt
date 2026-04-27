@@ -101,7 +101,26 @@ Do not use per-instance memory backends for
 cross-instance consistency.
 end note
 
-== Typical Request Flow ==
+@enduml
+
+@startuml mt_stateless_instances_flow
+
+title Typical Request Flow Through One Stateless Instance
+
+skinparam shadowing false
+
+actor Client
+participant "Load Balancer" as LoadBalancer
+participant "Request Handler\nInstance A" as HandlerA
+participant "mt::TransactionProvider" as TxProviderA
+participant "mt::TableProvider" as TableProviderA
+participant "IDatabaseBackend\nimplementation" as Backend
+participant "IBackendSession" as Session
+database "Shared Durable Store" as Store
+participant "Version Clock" as Clock
+participant "Current Metadata" as Metadata
+participant "Document History" as History
+participant "Active Transactions" as ActiveTx
 
 Client -> LoadBalancer : HTTP/gRPC request
 LoadBalancer -> HandlerA : route to any instance
