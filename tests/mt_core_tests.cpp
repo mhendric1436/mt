@@ -1,18 +1,18 @@
-#include "mt_core.hpp"
-#include "mt_memory_backend.hpp"
+#include "mt/core.hpp"
+#include "mt/memory_backend.hpp"
 
 #include <cassert>
 #include <iostream>
 
 // -----------------------------------------------------------------------------
-// Minimal tests for mt_core.hpp
+// Minimal tests for mt/core.hpp
 //
 // These tests use a fake in-memory backend that implements the backend
-// contracts expected by mt_core.hpp. It is intentionally small and
+// contracts expected by mt/core.hpp. It is intentionally small and
 // deterministic.
 //
 // Build example:
-//   c++ -std=c++20 -Wall -Wextra -pedantic mt_core_tests.cpp -o mt_core_tests
+//   c++ -std=c++20 -Iinclude -Wall -Wextra -pedantic tests/mt_core_tests.cpp -o mt_core_tests
 //
 // Run:
 //   ./mt_core_tests

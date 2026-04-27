@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mt_collection.hpp"
+#include "mt/collection.hpp"
 
 #include <optional>
 #include <string>
@@ -9,7 +9,7 @@
 #include <utility>
 
 // -----------------------------------------------------------------------------
-// mt_metadata_cache.hpp
+// mt/metadata_cache.hpp
 //
 // In-process collection descriptor cache.
 // -----------------------------------------------------------------------------

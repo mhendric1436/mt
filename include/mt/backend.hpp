@@ -1,15 +1,15 @@
 #pragma once
 
-#include "mt_collection.hpp"
-#include "mt_query.hpp"
-#include "mt_types.hpp"
+#include "mt/collection.hpp"
+#include "mt/query.hpp"
+#include "mt/types.hpp"
 
 #include <memory>
 #include <optional>
 #include <string_view>
 
 // -----------------------------------------------------------------------------
-// mt_backend.hpp
+// mt/backend.hpp
 //
 // Backend interfaces for concrete storage engines.
 // -----------------------------------------------------------------------------

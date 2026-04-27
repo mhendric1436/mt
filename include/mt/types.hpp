@@ -1,14 +1,14 @@
 #pragma once
 
-#include "mt_collection.hpp"
-#include "mt_json.hpp"
-#include "mt_query.hpp"
+#include "mt/collection.hpp"
+#include "mt/json.hpp"
+#include "mt/query.hpp"
 
 #include <string>
 #include <vector>
 
 // -----------------------------------------------------------------------------
-// mt_types.hpp
+// mt/types.hpp
 //
 // Backend document envelopes and write descriptions.
 // -----------------------------------------------------------------------------

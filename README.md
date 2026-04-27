@@ -61,7 +61,7 @@ make format
 make clean
 ```
 
-`make check` syntax-checks the public headers through `mt_core.cpp` and runs the test
+`make check` syntax-checks the public headers through `src/mt_core.cpp` and runs the test
 binaries.
 
 ## Code Generation
@@ -97,8 +97,8 @@ Supported field types in the first generator version:
 ## Quick Example
 
 ```cpp
-#include "mt_core.hpp"
-#include "mt_memory_backend.hpp"
+#include "mt/core.hpp"
+#include "mt/memory_backend.hpp"
 
 #include <memory>
 #include <string>
@@ -170,22 +170,22 @@ int main()
 
 ## Repository Layout
 
-- `mt_core.hpp`: umbrella header for the full public API
-- `mt_json.hpp`: JSON value and stable hashing
-- `mt_errors.hpp`: exception types
-- `mt_query.hpp`: query, list, and index model
-- `mt_collection.hpp`: collection descriptors and migration specs
-- `mt_types.hpp`: document envelopes and write envelopes
-- `mt_backend.hpp`: backend interfaces
-- `mt_database.hpp`: database facade
-- `mt_transaction.hpp`: transaction state, validation, retry provider
-- `mt_table.hpp`: mapping concept and typed table facade
-- `mt_memory_backend.hpp`: in-memory backend
+- `include/mt/core.hpp`: umbrella header for the full public API
+- `include/mt/json.hpp`: JSON value and stable hashing
+- `include/mt/errors.hpp`: exception types
+- `include/mt/query.hpp`: query, list, and index model
+- `include/mt/collection.hpp`: collection descriptors and migration specs
+- `include/mt/types.hpp`: document envelopes and write envelopes
+- `include/mt/backend.hpp`: backend interfaces
+- `include/mt/database.hpp`: database facade
+- `include/mt/transaction.hpp`: transaction state, validation, retry provider
+- `include/mt/table.hpp`: mapping concept and typed table facade
+- `include/mt/memory_backend.hpp`: in-memory backend
 - `tools/mt_codegen.py`: JSON metadata to C++ header generator
 - `examples/schemas/user.mt.json`: example schema used by documentation and tests
-- `mt_core_tests.cpp`: test suite
-- `mt_codegen_tests.cpp`: generated-code test suite
-- `mt_core.cpp`: header syntax-check translation unit
+- `tests/mt_core_tests.cpp`: test suite
+- `tests/mt_codegen_tests.cpp`: generated-code test suite
+- `src/mt_core.cpp`: header syntax-check translation unit
 
 ## Backend Model
 
@@ -199,7 +199,7 @@ history insertion, current-row upserts, clock/version operations, and backend-sp
 transaction IDs.
 
 For production storage engines, implement these interfaces in a separate backend module
-and include `mt_backend.hpp` rather than the full umbrella header when possible.
+and include `mt/backend.hpp` rather than the full umbrella header when possible.
 
 ## Formatting
 

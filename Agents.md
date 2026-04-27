@@ -4,16 +4,17 @@
 
 This repository is a small C++20 micro-transaction core library.
 
-- `mt_core.hpp` is the compatibility umbrella header for the full core API.
-- `mt_json.hpp`, `mt_errors.hpp`, `mt_query.hpp`, `mt_collection.hpp`, and `mt_types.hpp` contain passive public types.
-- `mt_backend.hpp`, `mt_metadata_cache.hpp`, and `mt_database.hpp` contain backend and database shell interfaces.
-- `mt_transaction.hpp` contains transaction state, validation, retry policy, and `TransactionProvider`.
-- `mt_table.hpp` contains the mapping concept, `TableProvider`, and typed `Table` facade.
-- `mt_memory_backend.hpp` contains the in-memory backend used for tests and local development.
+- `include/mt/core.hpp` is the umbrella header for the full core API.
+- `include/mt/json.hpp`, `include/mt/errors.hpp`, `include/mt/query.hpp`, `include/mt/collection.hpp`, and `include/mt/types.hpp` contain passive public types.
+- `include/mt/backend.hpp`, `include/mt/metadata_cache.hpp`, and `include/mt/database.hpp` contain backend and database shell interfaces.
+- `include/mt/transaction.hpp` contains transaction state, validation, retry policy, and `TransactionProvider`.
+- `include/mt/table.hpp` contains the mapping concept, `TableProvider`, and typed `Table` facade.
+- `include/mt/memory_backend.hpp` contains the in-memory backend used for tests and local development.
 - `tools/mt_codegen.py` generates row and mapping headers from user-owned JSON metadata.
 - `examples/schemas/user.mt.json` is an example schema used for documentation and tests.
-- `mt_core_tests.cpp` contains the current test suite.
-- `mt_codegen_tests.cpp` contains generated-code tests.
+- `tests/mt_core_tests.cpp` contains the current test suite.
+- `tests/mt_codegen_tests.cpp` contains generated-code tests.
+- `src/mt_core.cpp` contains the header syntax-check translation unit.
 - `Makefile` builds and runs the checks.
 
 ## Build And Test
@@ -24,7 +25,7 @@ Use the existing Makefile targets:
 make check
 ```
 
-This runs a header syntax check through `mt_core.cpp` and the test binary.
+This runs a header syntax check through `src/mt_core.cpp` and the test binaries.
 
 Useful targeted commands:
 
@@ -61,13 +62,13 @@ make clean
 
 ## Decomposition Layout
 
-`mt_core.hpp` has been decomposed while preserving the original include path. Prefer narrower includes for implementation files when possible:
+Public headers live under `include/mt`. Prefer narrower includes for implementation files when possible:
 
-- `mt_errors.hpp`
-- `mt_types.hpp`
-- `mt_query.hpp`
-- `mt_collection.hpp`
-- `mt_backend.hpp`
-- `mt_metadata_cache.hpp`
-- `mt_transaction.hpp`
-- `mt_table.hpp`
+- `mt/errors.hpp`
+- `mt/types.hpp`
+- `mt/query.hpp`
+- `mt/collection.hpp`
+- `mt/backend.hpp`
+- `mt/metadata_cache.hpp`
+- `mt/transaction.hpp`
+- `mt/table.hpp`

@@ -1,14 +1,14 @@
 #pragma once
 
-#include "mt_backend.hpp"
-#include "mt_errors.hpp"
-#include "mt_metadata_cache.hpp"
+#include "mt/backend.hpp"
+#include "mt/errors.hpp"
+#include "mt/metadata_cache.hpp"
 
 #include <memory>
 #include <utility>
 
 // -----------------------------------------------------------------------------
-// mt_database.hpp
+// mt/database.hpp
 //
 // Database facade shared by transaction and table providers.
 // -----------------------------------------------------------------------------

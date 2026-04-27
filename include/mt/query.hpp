@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mt_json.hpp"
+#include "mt/json.hpp"
 
 #include <cstddef>
 #include <optional>
@@ -9,7 +9,7 @@
 #include <vector>
 
 // -----------------------------------------------------------------------------
-// mt_query.hpp
+// mt/query.hpp
 //
 // Query and index model.
 // -----------------------------------------------------------------------------

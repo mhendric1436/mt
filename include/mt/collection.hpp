@@ -1,7 +1,7 @@
 #pragma once
 
-#include "mt_json.hpp"
-#include "mt_query.hpp"
+#include "mt/json.hpp"
+#include "mt/query.hpp"
 
 #include <cstdint>
 #include <functional>
@@ -9,7 +9,7 @@
 #include <vector>
 
 // -----------------------------------------------------------------------------
-// mt_collection.hpp
+// mt/collection.hpp
 //
 // Collection descriptors and migration specs.
 // -----------------------------------------------------------------------------

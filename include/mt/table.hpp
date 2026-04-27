@@ -1,10 +1,10 @@
 #pragma once
 
-#include "mt_collection.hpp"
-#include "mt_database.hpp"
-#include "mt_errors.hpp"
-#include "mt_query.hpp"
-#include "mt_transaction.hpp"
+#include "mt/collection.hpp"
+#include "mt/database.hpp"
+#include "mt/errors.hpp"
+#include "mt/query.hpp"
+#include "mt/transaction.hpp"
 
 #include <concepts>
 #include <optional>
@@ -14,7 +14,7 @@
 #include <vector>
 
 // -----------------------------------------------------------------------------
-// mt_table.hpp
+// mt/table.hpp
 //
 // Mapping concept, table provider, and typed table facade.
 // -----------------------------------------------------------------------------

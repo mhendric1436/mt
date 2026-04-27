@@ -1,4 +1,4 @@
-# Makefile for mt_core.hpp and mt_core_tests.cpp
+# Makefile for mt public headers and tests
 #
 # Usage:
 #   make            # build and run tests
@@ -16,7 +16,7 @@ CXX ?= c++
 CLANG_FORMAT ?= clang-format
 
 CXXFLAGS ?= -std=c++20 -O0 -g -Wall -Wextra -Wpedantic
-CPPFLAGS ?= -I.
+CPPFLAGS ?= -Iinclude
 LDFLAGS  ?=
 LDLIBS   ?=
 
@@ -26,26 +26,27 @@ TEST_BIN  := $(BUILD_DIR)/mt_core_tests
 CODEGEN_TEST_BIN := $(BUILD_DIR)/mt_codegen_tests
 GENERATED_DIR := $(BUILD_DIR)/generated
 
-CORE_HEADER := mt_core.hpp
+CORE_HEADER := include/mt/core.hpp
 CORE_HEADERS := \
-	mt_json.hpp \
-	mt_errors.hpp \
-	mt_query.hpp \
-	mt_collection.hpp \
-	mt_types.hpp \
-	mt_backend.hpp \
-	mt_metadata_cache.hpp \
-	mt_database.hpp \
-	mt_transaction.hpp \
-	mt_table.hpp \
+	include/mt/json.hpp \
+	include/mt/errors.hpp \
+	include/mt/query.hpp \
+	include/mt/collection.hpp \
+	include/mt/types.hpp \
+	include/mt/backend.hpp \
+	include/mt/metadata_cache.hpp \
+	include/mt/database.hpp \
+	include/mt/transaction.hpp \
+	include/mt/table.hpp \
+	include/mt/memory_backend.hpp \
 	$(CORE_HEADER)
-TEST_SRC    := mt_core_tests.cpp
-CODEGEN_TEST_SRC := mt_codegen_tests.cpp
-HEADER_CHECK_SRC := mt_core.cpp
+TEST_SRC    := tests/mt_core_tests.cpp
+CODEGEN_TEST_SRC := tests/mt_codegen_tests.cpp
+HEADER_CHECK_SRC := src/mt_core.cpp
 CODEGEN := python3 tools/mt_codegen.py
 EXAMPLE_SCHEMA := examples/schemas/user.mt.json
 GENERATED_EXAMPLE_HEADER := $(GENERATED_DIR)/user.hpp
-FORMAT_FILES := $(CORE_HEADERS) mt_memory_backend.hpp $(HEADER_CHECK_SRC) $(TEST_SRC) $(CODEGEN_TEST_SRC)
+FORMAT_FILES := $(CORE_HEADERS) $(HEADER_CHECK_SRC) $(TEST_SRC) $(CODEGEN_TEST_SRC)
 
 .PHONY: all build test check codegen-examples header-check format clean rebuild print-config
 
@@ -57,7 +58,7 @@ $(BUILD_STAMP):
 	mkdir -p $(BUILD_DIR)
 	touch $(BUILD_STAMP)
 
-$(TEST_BIN): $(TEST_SRC) $(CORE_HEADERS) mt_memory_backend.hpp | $(BUILD_STAMP)
+$(TEST_BIN): $(TEST_SRC) $(CORE_HEADERS) | $(BUILD_STAMP)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(TEST_SRC) -o $@ $(LDFLAGS) $(LDLIBS)
 
 $(GENERATED_DIR): | $(BUILD_STAMP)
@@ -66,7 +67,7 @@ $(GENERATED_DIR): | $(BUILD_STAMP)
 $(GENERATED_EXAMPLE_HEADER): $(EXAMPLE_SCHEMA) tools/mt_codegen.py | $(GENERATED_DIR)
 	$(CODEGEN) $(EXAMPLE_SCHEMA) -o $@
 
-$(CODEGEN_TEST_BIN): $(CODEGEN_TEST_SRC) $(GENERATED_EXAMPLE_HEADER) $(CORE_HEADERS) mt_memory_backend.hpp | $(BUILD_STAMP)
+$(CODEGEN_TEST_BIN): $(CODEGEN_TEST_SRC) $(GENERATED_EXAMPLE_HEADER) $(CORE_HEADERS) | $(BUILD_STAMP)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(CODEGEN_TEST_SRC) -o $@ $(LDFLAGS) $(LDLIBS)
 
 test: build
@@ -82,7 +83,7 @@ format:
 
 # Compile a small translation unit that includes public headers. This catches
 # syntax and include-order issues without compiling #pragma once headers directly.
-header-check: $(HEADER_CHECK_SRC) $(CORE_HEADERS) mt_memory_backend.hpp | $(BUILD_STAMP)
+header-check: $(HEADER_CHECK_SRC) $(CORE_HEADERS) | $(BUILD_STAMP)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -DMT_HEADER_SYNTAX_CHECK -fsyntax-only $(HEADER_CHECK_SRC)
 
 rebuild: clean build

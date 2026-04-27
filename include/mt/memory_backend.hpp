@@ -1,7 +1,7 @@
 #pragma once
 
-#include "mt_backend.hpp"
-#include "mt_errors.hpp"
+#include "mt/backend.hpp"
+#include "mt/errors.hpp"
 
 #include <map>
 #include <memory>
@@ -14,11 +14,11 @@
 #include <vector>
 
 // -----------------------------------------------------------------------------
-// mt_memory_backend.hpp
+// mt/memory_backend.hpp
 //
 // Small in-memory backend for tests and local development.
 //
-// This is intentionally backend-compatible with mt_core.hpp and has no test-row
+// This is intentionally backend-compatible with mt/core.hpp and has no test-row
 // knowledge. Tests can include this file instead of embedding a backend.
 // -----------------------------------------------------------------------------
 

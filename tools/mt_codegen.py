@@ -202,7 +202,7 @@ def render(schema):
         [
             "#pragma once",
             "",
-            '#include "mt_core.hpp"',
+            '#include "mt/core.hpp"',
             "",
             "#include <cstdint>",
             "#include <string>",

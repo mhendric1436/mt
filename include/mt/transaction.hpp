@@ -1,8 +1,8 @@
 #pragma once
 
-#include "mt_database.hpp"
-#include "mt_errors.hpp"
-#include "mt_types.hpp"
+#include "mt/database.hpp"
+#include "mt/errors.hpp"
+#include "mt/types.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -19,7 +19,7 @@
 #include <vector>
 
 // -----------------------------------------------------------------------------
-// mt_transaction.hpp
+// mt/transaction.hpp
 //
 // Transaction state, validation, and retry provider.
 // -----------------------------------------------------------------------------
