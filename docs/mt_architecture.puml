@@ -1,0 +1,122 @@
+@startuml mt_architecture
+
+title mt Library Architecture
+
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+package "Public Core API\ninclude/mt" {
+  [mt/core.hpp\nUmbrella Header] as Core
+  [mt/table.hpp\nTable + TableProvider\nRowMapping concept] as Table
+  [mt/transaction.hpp\nTransaction + TransactionProvider\nRead/write validation] as Transaction
+  [mt/database.hpp\nDatabase facade] as Database
+  [mt/backend.hpp\nIDatabaseBackend\nIBackendSession] as BackendApi
+  [mt/query.hpp\nQuerySpec\nListOptions\nIndexSpec] as Query
+  [mt/types.hpp\nDocumentEnvelope\nWriteEnvelope] as Types
+  [mt/json.hpp\nJson value\nhash_json()] as Json
+  [mt/hash.hpp\nHash] as Hash
+  [mt/errors.hpp\nError hierarchy] as Errors
+  [mt/collection.hpp\nCollectionSpec\nDescriptor\nMigration] as Collection
+  [mt/metadata_cache.hpp\nMetadataCache] as MetadataCache
+}
+
+package "Backends" {
+  package "include/mt/backends" {
+    [memory.hpp\nMemoryBackend\nMemorySession] as MemoryBackend
+  }
+
+  package "planned optional backends" {
+    [SQLite Backend] as SqliteBackend
+    [PostgreSQL Backend] as PostgresBackend
+  }
+}
+
+package "Code Generation" {
+  [tools/mt_codegen.py] as Codegen
+  [User-owned schema\n*.mt.json] as UserSchema
+  [Generated row header\nUser + UserMapping] as GeneratedHeader
+  [examples/schemas/user.mt.json\nfixture schema] as ExampleSchema
+}
+
+package "Tests" {
+  [tests/mt_core_tests.cpp] as CoreTests
+  [tests/mt_codegen_tests.cpp] as CodegenTests
+  [src/mt_core.cpp\nheader syntax check] as HeaderCheck
+}
+
+Core --> Table
+Core --> Transaction
+Core --> Database
+Core --> BackendApi
+Core --> Query
+Core --> Types
+Core --> Json
+Core --> Hash
+Core --> Errors
+Core --> Collection
+Core --> MetadataCache
+
+Table --> Transaction : transactional operations
+Table --> Database : opens sessions\nensures collections
+Table --> Json : RowMapping to_json/from_json
+Table --> Query
+Table --> Collection
+
+Transaction --> BackendApi : IBackendSession
+Transaction --> Types
+Transaction --> Query
+Transaction --> Json : hash_json()
+Transaction --> Errors
+
+Database --> BackendApi : owns backend
+Database --> MetadataCache
+Database --> Collection
+
+Types --> Hash
+Types --> Json
+Query --> Json
+Collection --> Query
+Collection --> Json
+Json --> Hash
+
+MemoryBackend ..|> BackendApi : implements
+SqliteBackend ..|> BackendApi : planned
+PostgresBackend ..|> BackendApi : planned
+
+UserSchema --> Codegen
+ExampleSchema --> Codegen
+Codegen --> GeneratedHeader
+GeneratedHeader --> Core : includes
+
+CoreTests --> Core
+CoreTests --> MemoryBackend
+CodegenTests --> GeneratedHeader
+CodegenTests --> MemoryBackend
+HeaderCheck --> Core
+HeaderCheck --> MemoryBackend
+
+note right of BackendApi
+Backends provide:
+- sessions
+- version clock
+- snapshot reads
+- current metadata
+- history/current writes
+- backend-owned TxId
+end note
+
+note right of MemoryBackend
+Memory backend:
+- test/local development
+- key-prefix + JSON equality queries
+- unique index checks
+- rejects unsupported query and migration features
+end note
+
+note bottom of Codegen
+Only example schemas live in this repo.
+Library users keep application schemas locally.
+end note
+
+@enduml
