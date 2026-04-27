@@ -6,6 +6,8 @@
 #   make test       # build and run tests
 #   make check      # syntax-check header and run tests
 #   make format     # format source files with clang-format
+#   make docs-png   # generate PNG diagrams from PlantUML files
+#   make clean-docs # remove generated PlantUML PNG files
 #   make clean      # remove build artifacts
 #
 # Override examples:
@@ -14,6 +16,7 @@
 
 CXX ?= c++
 CLANG_FORMAT ?= clang-format
+PLANTUML ?= plantuml
 
 CXXFLAGS ?= -std=c++20 -O0 -g -Wall -Wextra -Wpedantic
 CPPFLAGS ?= -Iinclude
@@ -48,8 +51,9 @@ CODEGEN := python3 tools/mt_codegen.py
 EXAMPLE_SCHEMA := examples/schemas/user.mt.json
 GENERATED_EXAMPLE_HEADER := $(GENERATED_DIR)/user.hpp
 FORMAT_FILES := $(CORE_HEADERS) $(HEADER_CHECK_SRC) $(TEST_SRC) $(CODEGEN_TEST_SRC)
+PUML_FILES := $(wildcard docs/*.puml)
 
-.PHONY: all build test check codegen-examples header-check format clean rebuild print-config
+.PHONY: all build test check codegen-examples header-check format docs-png clean-docs clean rebuild print-config
 
 all: test
 
@@ -82,6 +86,12 @@ codegen-examples: $(GENERATED_EXAMPLE_HEADER)
 format:
 	$(CLANG_FORMAT) -i $(FORMAT_FILES)
 
+docs-png:
+	$(PLANTUML) -tpng $(PUML_FILES)
+
+clean-docs:
+	rm -f docs/*.png
+
 # Compile a small translation unit that includes public headers. This catches
 # syntax and include-order issues without compiling #pragma once headers directly.
 header-check: $(HEADER_CHECK_SRC) $(CORE_HEADERS) | $(BUILD_STAMP)
@@ -95,6 +105,7 @@ clean:
 print-config:
 	@echo "CXX      = $(CXX)"
 	@echo "CLANG_FORMAT = $(CLANG_FORMAT)"
+	@echo "PLANTUML = $(PLANTUML)"
 	@echo "CODEGEN  = $(CODEGEN)"
 	@echo "CPPFLAGS = $(CPPFLAGS)"
 	@echo "CXXFLAGS = $(CXXFLAGS)"
