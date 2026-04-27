@@ -38,7 +38,8 @@ CORE_HEADERS := \
 	mt_table.hpp \
 	$(CORE_HEADER)
 TEST_SRC    := mt_core_tests.cpp
-FORMAT_FILES := $(CORE_HEADERS) mt_memory_backend.hpp $(TEST_SRC)
+HEADER_CHECK_SRC := mt_core.cpp
+FORMAT_FILES := $(CORE_HEADERS) mt_memory_backend.hpp $(HEADER_CHECK_SRC) $(TEST_SRC)
 
 .PHONY: all build test check header-check format clean rebuild print-config
 
@@ -61,10 +62,10 @@ check: header-check test
 format:
 	$(CLANG_FORMAT) -i $(FORMAT_FILES)
 
-# Compile the header as a translation unit to catch standalone header errors.
-# -x c++ forces C++ parsing even though the file extension is .hpp.
-header-check: $(CORE_HEADERS) | $(BUILD_STAMP)
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -x c++ -fsyntax-only $(CORE_HEADER)
+# Compile a small translation unit that includes public headers. This catches
+# syntax and include-order issues without compiling #pragma once headers directly.
+header-check: $(HEADER_CHECK_SRC) $(CORE_HEADERS) mt_memory_backend.hpp | $(BUILD_STAMP)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -DMT_HEADER_SYNTAX_CHECK -fsyntax-only $(HEADER_CHECK_SRC)
 
 rebuild: clean build
 
