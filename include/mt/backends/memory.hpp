@@ -14,7 +14,7 @@
 #include <vector>
 
 // -----------------------------------------------------------------------------
-// mt/memory_backend.hpp
+// mt/backends/memory.hpp
 //
 // Small in-memory backend for tests and local development.
 //
@@ -22,7 +22,7 @@
 // knowledge. Tests can include this file instead of embedding a backend.
 // -----------------------------------------------------------------------------
 
-namespace mt::memory
+namespace mt::backends::memory
 {
 
 struct MemoryVersion
@@ -540,4 +540,4 @@ class MemoryBackend final : public IDatabaseBackend
     std::shared_ptr<MemoryState> state_;
 };
 
-} // namespace mt::memory
+} // namespace mt::backends::memory

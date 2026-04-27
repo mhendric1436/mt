@@ -1,5 +1,5 @@
+#include "mt/backends/memory.hpp"
 #include "mt/core.hpp"
-#include "mt/memory_backend.hpp"
 
 #ifdef MT_HEADER_SYNTAX_CHECK
 int main()

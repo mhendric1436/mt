@@ -1,6 +1,6 @@
 #include "../build/generated/user.hpp"
 
-#include "mt/memory_backend.hpp"
+#include "mt/backends/memory.hpp"
 
 #include <cassert>
 #include <iostream>
@@ -28,7 +28,7 @@ void test_generated_user_mapping_round_trips()
 
 void test_generated_user_table_works_with_memory_backend()
 {
-    auto backend = std::make_shared<mt::memory::MemoryBackend>();
+    auto backend = std::make_shared<mt::backends::memory::MemoryBackend>();
     mt::Database db{backend};
     mt::TransactionProvider txs{db};
     mt::TableProvider tables{db};

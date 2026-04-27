@@ -9,7 +9,7 @@ This repository is a small C++20 micro-transaction core library.
 - `include/mt/backend.hpp`, `include/mt/metadata_cache.hpp`, and `include/mt/database.hpp` contain backend and database shell interfaces.
 - `include/mt/transaction.hpp` contains transaction state, validation, retry policy, and `TransactionProvider`.
 - `include/mt/table.hpp` contains the mapping concept, `TableProvider`, and typed `Table` facade.
-- `include/mt/memory_backend.hpp` contains the in-memory backend used for tests and local development.
+- `include/mt/backends/memory.hpp` contains the in-memory backend used for tests and local development.
 - `tools/mt_codegen.py` generates row and mapping headers from user-owned JSON metadata.
 - `examples/schemas/user.mt.json` is an example schema used for documentation and tests.
 - `tests/mt_core_tests.cpp` contains the current test suite.

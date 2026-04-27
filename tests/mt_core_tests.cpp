@@ -1,5 +1,5 @@
+#include "mt/backends/memory.hpp"
 #include "mt/core.hpp"
-#include "mt/memory_backend.hpp"
 
 #include <cassert>
 #include <iostream>
@@ -82,8 +82,8 @@ struct UserMapping
 
 struct Harness
 {
-    std::shared_ptr<mt::memory::MemoryBackend> backend =
-        std::make_shared<mt::memory::MemoryBackend>();
+    std::shared_ptr<mt::backends::memory::MemoryBackend> backend =
+        std::make_shared<mt::backends::memory::MemoryBackend>();
     mt::Database db{backend};
     mt::TransactionProvider txs{db};
     mt::TableProvider tables{db};

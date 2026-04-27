@@ -98,7 +98,7 @@ Supported field types in the first generator version:
 
 ```cpp
 #include "mt/core.hpp"
-#include "mt/memory_backend.hpp"
+#include "mt/backends/memory.hpp"
 
 #include <memory>
 #include <string>
@@ -143,7 +143,7 @@ struct UserMapping
 
 int main()
 {
-    auto backend = std::make_shared<mt::memory::MemoryBackend>();
+    auto backend = std::make_shared<mt::backends::memory::MemoryBackend>();
     mt::Database db{backend};
     mt::TransactionProvider txs{db};
     mt::TableProvider tables{db};
@@ -177,10 +177,11 @@ int main()
 - `include/mt/collection.hpp`: collection descriptors and migration specs
 - `include/mt/types.hpp`: document envelopes and write envelopes
 - `include/mt/backend.hpp`: backend interfaces
+- `include/mt/backends/memory.hpp`: in-memory backend
 - `include/mt/database.hpp`: database facade
 - `include/mt/transaction.hpp`: transaction state, validation, retry provider
 - `include/mt/table.hpp`: mapping concept and typed table facade
-- `include/mt/memory_backend.hpp`: in-memory backend
+- `src/backends/`: optional backend implementation files
 - `tools/mt_codegen.py`: JSON metadata to C++ header generator
 - `examples/schemas/user.mt.json`: example schema used by documentation and tests
 - `tests/mt_core_tests.cpp`: test suite
@@ -200,6 +201,28 @@ transaction IDs.
 
 For production storage engines, implement these interfaces in a separate backend module
 and include `mt/backend.hpp` rather than the full umbrella header when possible.
+
+Backend-specific public headers should live under:
+
+```text
+include/mt/backends/
+```
+
+Backend-specific implementation and tests should live under:
+
+```text
+src/backends/
+tests/backends/
+```
+
+The memory backend is header-only and available as:
+
+```cpp
+#include "mt/backends/memory.hpp"
+```
+
+Future SQLite and PostgreSQL backends should be optional so core users do not need those
+dependencies.
 
 ## Formatting
 
