@@ -45,6 +45,24 @@ make clean
 - Run `make check` after code changes when feasible.
 - Keep repository schemas limited to examples/test fixtures; users provide their own local schemas to `tools/mt_codegen.py`.
 
+## C++ Parameter Passing
+
+Rule of thumb:
+
+- Use by value for cheap scalar types or when the function takes ownership.
+- Use `const T&` for larger read-only objects.
+- Use `T&` only when mutating the caller's object.
+- Use `std::string_view` by value for non-owning string inputs.
+- Use `std::unique_ptr<T>` by value for ownership transfer.
+- Use `std::shared_ptr<T>` by value when the callee stores/shared-owns it.
+
+Repo-specific guidance:
+
+- `CollectionId`, `Version`, `bool`, and enum values: pass by value.
+- `std::string`, `Key`, and `TxId`: pass by value when storing/moving; otherwise prefer `std::string_view` or `const std::string&`.
+- `Json`: pass by `const Json&` for reading; pass by value when storing/moving.
+- `QuerySpec`, `ListOptions`, and `WriteEnvelope`: pass by `const&` for reading; pass by value only when intentionally storing or moving a copy.
+
 ## Current Design Notes
 
 - `mt::Json` is a small built-in JSON value type with stable canonical hashing.
