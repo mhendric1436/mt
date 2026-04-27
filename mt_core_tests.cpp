@@ -3,10 +3,6 @@
 
 #include <cassert>
 #include <iostream>
-#include <map>
-#include <mutex>
-#include <sstream>
-#include <unordered_set>
 
 // -----------------------------------------------------------------------------
 // Minimal tests for mt_core.hpp
@@ -26,11 +22,8 @@ namespace test_support
 {
 
 // -----------------------------------------------------------------------------
-// Test row and fake JSON model
+// Test row and JSON mapping
 // -----------------------------------------------------------------------------
-// mt_core.hpp currently defines mt::Json as a placeholder. For real production
-// tests, replace mt::Json in the core with your real JSON type. These tests
-// only rely on equality and use out-of-band maps to represent row data.
 
 struct User
 {
@@ -46,61 +39,6 @@ struct User
     ) = default;
 };
 
-// Since mt::Json is a placeholder, this fake codec stores objects in process
-// memory and places an opaque handle into the Json value. In a production test,
-// use nlohmann::json or your actual mt::Json implementation instead.
-class FakeJsonRegistry
-{
-  public:
-    static mt::Json encode_user(const User& user)
-    {
-        std::lock_guard lock(mutex_);
-        const auto id = ++next_id_;
-        users_[id] = user;
-        json_ids_[address_key(mt::Json{})] = id;
-
-        // mt::Json has no payload in the skeleton. Return a default object and
-        // rely on encode/decode call ordering through latest_id_. This is a test
-        // harness compromise until mt::Json is replaced with a real type.
-        latest_id_ = id;
-        return mt::Json{};
-    }
-
-    static User decode_latest_user()
-    {
-        std::lock_guard lock(mutex_);
-        return users_.at(latest_id_);
-    }
-
-    static User decode_user_from_envelope_key(const std::string& key)
-    {
-        std::lock_guard lock(mutex_);
-        return latest_by_key_.at(key);
-    }
-
-    static void remember_key_value(
-        const std::string& key,
-        const User& user
-    )
-    {
-        std::lock_guard lock(mutex_);
-        latest_by_key_[key] = user;
-    }
-
-  private:
-    static std::uintptr_t address_key(const mt::Json& value)
-    {
-        return reinterpret_cast<std::uintptr_t>(&value);
-    }
-
-    inline static std::mutex mutex_;
-    inline static std::uint64_t next_id_ = 0;
-    inline static std::uint64_t latest_id_ = 0;
-    inline static std::map<std::uint64_t, User> users_;
-    inline static std::map<std::uintptr_t, std::uint64_t> json_ids_;
-    inline static std::map<std::string, User> latest_by_key_;
-};
-
 struct UserMapping
 {
     static constexpr std::string_view table_name = "users";
@@ -113,13 +51,24 @@ struct UserMapping
 
     static mt::Json to_json(const User& user)
     {
-        FakeJsonRegistry::remember_key_value(user.id, user);
-        return FakeJsonRegistry::encode_user(user);
+        return mt::Json::object(
+            {{"id", user.id},
+             {"email", user.email},
+             {"name", user.name},
+             {"active", user.active},
+             {"login_count", user.login_count}}
+        );
     }
 
-    static User from_json(const mt::Json&)
+    static User from_json(const mt::Json& json)
     {
-        return FakeJsonRegistry::decode_latest_user();
+        return User{
+            .id = json["id"].as_string(),
+            .email = json["email"].as_string(),
+            .name = json["name"].as_string(),
+            .active = json["active"].as_bool(),
+            .login_count = json["login_count"].as_int64()
+        };
     }
 
     static std::vector<mt::IndexSpec> indexes()
@@ -181,6 +130,35 @@ void test_table_provider_creates_table()
     EXPECT_TRUE(h.users.descriptor().id != 0);
 }
 
+void test_json_values_round_trip_and_hash_stably()
+{
+    User expected{
+        .id = "user:json",
+        .email = "json@example.com",
+        .name = "Json User",
+        .active = false,
+        .login_count = 42
+    };
+
+    auto user_json = UserMapping::to_json(expected);
+    auto decoded = UserMapping::from_json(user_json);
+    EXPECT_EQ(decoded, expected);
+
+    auto same_json = UserMapping::to_json(decoded);
+    EXPECT_EQ(mt::hash_json(user_json), mt::hash_json(same_json));
+
+    auto changed_json = UserMapping::to_json(
+        User{
+            .id = "user:json",
+            .email = "changed@example.com",
+            .name = "Json User",
+            .active = false,
+            .login_count = 42
+        }
+    );
+    EXPECT_FALSE(mt::hash_json(user_json) == mt::hash_json(changed_json));
+}
+
 void test_non_transactional_get_missing_returns_nullopt()
 {
     Harness h;
@@ -209,8 +187,10 @@ void test_transactional_put_then_non_transactional_get()
 
     auto loaded = h.users.get("user:1");
     EXPECT_TRUE(loaded.has_value());
-    // With the placeholder Json implementation, full value round-trip requires
-    // replacing mt::Json with a real JSON type. This assertion verifies presence.
+    User expected{
+        .id = "user:1", .email = "a@example.com", .name = "Alice", .active = true, .login_count = 1
+    };
+    EXPECT_EQ(*loaded, expected);
 }
 
 void test_require_missing_throws()
@@ -238,6 +218,14 @@ void test_transactional_read_your_own_point_write()
 
             auto loaded = h.users.get(tx, "user:1");
             EXPECT_TRUE(loaded.has_value());
+            User expected{
+                .id = "user:1",
+                .email = "a@example.com",
+                .name = "Alice",
+                .active = true,
+                .login_count = 1
+            };
+            EXPECT_EQ(*loaded, expected);
         }
     );
 }
@@ -394,6 +382,10 @@ void test_retry_retries_on_conflict()
 
     h.txs.retry(policy, fn);
     EXPECT_EQ(attempts, 2);
+
+    auto loaded = h.users.require("user:1");
+    EXPECT_EQ(loaded.login_count, 100);
+    EXPECT_EQ(loaded.email, std::string("external@example.com"));
 }
 
 void test_rollback_discards_writes()
@@ -426,6 +418,7 @@ void test_destructor_rolls_back_uncommitted_transaction()
 int main()
 {
     test_table_provider_creates_table();
+    test_json_values_round_trip_and_hash_stably();
     test_non_transactional_get_missing_returns_nullopt();
     test_transactional_put_then_non_transactional_get();
     test_require_missing_throws();
