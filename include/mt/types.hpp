@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mt/collection.hpp"
+#include "mt/hash.hpp"
 #include "mt/json.hpp"
 #include "mt/query.hpp"
 

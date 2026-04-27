@@ -13,6 +13,7 @@
 #include "mt/collection.hpp"
 #include "mt/database.hpp"
 #include "mt/errors.hpp"
+#include "mt/hash.hpp"
 #include "mt/json.hpp"
 #include "mt/metadata_cache.hpp"
 #include "mt/query.hpp"

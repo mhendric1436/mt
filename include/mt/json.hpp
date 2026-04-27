@@ -1,5 +1,7 @@
 #pragma once
 
+#include "mt/hash.hpp"
+
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -327,16 +329,6 @@ class Json
 
   private:
     Value value_ = nullptr;
-};
-
-struct Hash
-{
-    std::vector<std::uint8_t> bytes;
-
-    friend bool operator==(
-        const Hash&,
-        const Hash&
-    ) = default;
 };
 
 inline Hash hash_json(const Json& value)

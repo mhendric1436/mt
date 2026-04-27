@@ -172,6 +172,7 @@ int main()
 
 - `include/mt/core.hpp`: umbrella header for the full public API
 - `include/mt/json.hpp`: JSON value and stable hashing
+- `include/mt/hash.hpp`: hash value type
 - `include/mt/errors.hpp`: exception types
 - `include/mt/query.hpp`: query, list, and index model
 - `include/mt/collection.hpp`: collection descriptors and migration specs

@@ -5,7 +5,7 @@
 This repository is a small C++20 micro-transaction core library.
 
 - `include/mt/core.hpp` is the umbrella header for the full core API.
-- `include/mt/json.hpp`, `include/mt/errors.hpp`, `include/mt/query.hpp`, `include/mt/collection.hpp`, and `include/mt/types.hpp` contain passive public types.
+- `include/mt/json.hpp`, `include/mt/hash.hpp`, `include/mt/errors.hpp`, `include/mt/query.hpp`, `include/mt/collection.hpp`, and `include/mt/types.hpp` contain passive public types.
 - `include/mt/backend.hpp`, `include/mt/metadata_cache.hpp`, and `include/mt/database.hpp` contain backend and database shell interfaces.
 - `include/mt/transaction.hpp` contains transaction state, validation, retry policy, and `TransactionProvider`.
 - `include/mt/table.hpp` contains the mapping concept, `TableProvider`, and typed `Table` facade.
