@@ -449,81 +449,7 @@ class MemorySession final : public IBackendSession
         const QuerySpec& query
     )
     {
-        for (const auto& predicate : query.predicates)
-        {
-            switch (predicate.op)
-            {
-            case QueryOp::KeyPrefix:
-                if (key.rfind(predicate.text, 0) != 0)
-                {
-                    return false;
-                }
-                break;
-
-            case QueryOp::JsonEquals:
-                if (auto field = json_path_value(value, predicate.path))
-                {
-                    if (*field != predicate.value)
-                    {
-                        return false;
-                    }
-                }
-                else
-                {
-                    return false;
-                }
-                break;
-
-            case QueryOp::JsonContains:
-                throw BackendError("memory backend does not support JSON contains predicates");
-            }
-        }
-
-        return true;
-    }
-
-    static std::optional<Json> json_path_value(
-        const Json& value,
-        const std::string& path
-    )
-    {
-        if (path == "$")
-        {
-            return value;
-        }
-        if (path.rfind("$.", 0) != 0)
-        {
-            throw BackendError("memory backend only supports JSON paths starting with '$.'");
-        }
-
-        const Json* current = &value;
-        std::size_t start = 2;
-        while (start <= path.size())
-        {
-            auto end = path.find('.', start);
-            auto segment =
-                path.substr(start, end == std::string::npos ? std::string::npos : end - start);
-            if (segment.empty() || !current->is_object())
-            {
-                return std::nullopt;
-            }
-
-            const auto& object = current->as_object();
-            auto it = object.find(segment);
-            if (it == object.end())
-            {
-                return std::nullopt;
-            }
-
-            current = &it->second;
-            if (end == std::string::npos)
-            {
-                break;
-            }
-            start = end + 1;
-        }
-
-        return *current;
+        return mt::matches_query(key, value, query);
     }
 
     static void check_unique_constraints(
@@ -543,7 +469,7 @@ class MemorySession final : public IBackendSession
                 continue;
             }
 
-            auto write_value = json_path_value(write.value, index.json_path);
+            auto write_value = mt::json_path_value(write.value, index.json_path);
             if (!write_value)
             {
                 continue;
@@ -556,7 +482,7 @@ class MemorySession final : public IBackendSession
                     continue;
                 }
 
-                auto current_value = json_path_value(current.value, index.json_path);
+                auto current_value = mt::json_path_value(current.value, index.json_path);
                 if (current_value && *current_value == *write_value)
                 {
                     throw BackendError("memory backend unique index constraint violation");

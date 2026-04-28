@@ -20,7 +20,7 @@ Implemented:
 - snapshot reads
 - optimistic read/write conflict detection
 - predicate read conflict detection
-- read-your-writes for point reads, `list`, and key-prefix `query`
+- read-your-writes for point reads, `list`, key-prefix `query`, and JSON equality `query`
 - small built-in JSON value type with stable canonical hashing
 - in-memory backend for tests and local development
 
@@ -36,15 +36,13 @@ Known limitations:
 
 Current priority areas before treating `mt` as a stable library:
 
-1. Improve predicate and query validation, especially around read-your-writes behavior
-   for JSON predicates and backend-specific query limitations.
-2. Add production backend skeletons, starting with SQLite or PostgreSQL, to prove the
+1. Add production backend skeletons, starting with SQLite or PostgreSQL, to prove the
    interface outside the in-memory backend.
-3. Expand generated schema validation so invalid metadata fails with clear diagnostics
+2. Expand generated schema validation so invalid metadata fails with clear diagnostics
    before C++ generation.
-4. Polish the public API, including retry callable ergonomics, constness, parameter
+3. Polish the public API, including retry callable ergonomics, constness, parameter
    passing, and table/query construction.
-5. Add open-source project infrastructure such as a license, CI workflow, contribution
+4. Add open-source project infrastructure such as a license, CI workflow, contribution
    guide, install guidance, and backend implementation documentation.
 
 ## Requirements

@@ -430,7 +430,7 @@ class Transaction
         const std::optional<Key>& after_key
     )
     {
-        return !after_key || key > *after_key;
+        return mt::matches_after_key(key, after_key);
     }
 
     static bool matches_list(
@@ -451,24 +451,7 @@ class Transaction
             return false;
         }
 
-        for (const auto& predicate : query.predicates)
-        {
-            switch (predicate.op)
-            {
-            case QueryOp::KeyPrefix:
-                if (doc.key.rfind(predicate.text, 0) != 0)
-                {
-                    return false;
-                }
-                break;
-
-            case QueryOp::JsonEquals:
-            case QueryOp::JsonContains:
-                throw MappingError("pending write overlay does not support JSON query predicates");
-            }
-        }
-
-        return true;
+        return mt::matches_query(doc.key, doc.value, query);
     }
 
     template <class Matches>

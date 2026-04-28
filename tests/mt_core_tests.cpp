@@ -474,6 +474,101 @@ void test_transactional_query_reads_own_pending_matching_put()
     );
 }
 
+void test_transactional_json_equals_query_reads_own_pending_matching_put()
+{
+    Harness h;
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        {
+            h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"});
+            h.users.put(tx, User{.id = "user:2", .email = "b@example.com", .name = "Bob"});
+
+            auto rows = h.users.query(tx, mt::QuerySpec::where_json_eq("$.email", "a@example.com"));
+            EXPECT_EQ(rows.size(), std::size_t{1});
+            EXPECT_EQ(rows[0].id, std::string("user:1"));
+        }
+    );
+}
+
+void test_transactional_json_equals_query_excludes_pending_non_match()
+{
+    Harness h;
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        {
+            h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"});
+
+            auto rows = h.users.query(tx, mt::QuerySpec::where_json_eq("$.email", "b@example.com"));
+            EXPECT_TRUE(rows.empty());
+        }
+    );
+}
+
+void test_transactional_json_equals_query_reflects_pending_replacement()
+{
+    Harness h;
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        { h.users.put(tx, User{.id = "user:1", .email = "old@example.com", .name = "Old"}); }
+    );
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        {
+            h.users.put(tx, User{.id = "user:1", .email = "new@example.com", .name = "New"});
+
+            auto old_rows =
+                h.users.query(tx, mt::QuerySpec::where_json_eq("$.email", "old@example.com"));
+            auto new_rows =
+                h.users.query(tx, mt::QuerySpec::where_json_eq("$.email", "new@example.com"));
+
+            EXPECT_TRUE(old_rows.empty());
+            EXPECT_EQ(new_rows.size(), std::size_t{1});
+            EXPECT_EQ(new_rows[0].name, std::string("New"));
+        }
+    );
+}
+
+void test_transactional_json_equals_query_hides_pending_delete()
+{
+    Harness h;
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        { h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"}); }
+    );
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        {
+            h.users.erase(tx, "user:1");
+
+            auto rows = h.users.query(tx, mt::QuerySpec::where_json_eq("$.email", "a@example.com"));
+            EXPECT_TRUE(rows.empty());
+        }
+    );
+}
+
+void test_transactional_query_rejects_json_contains()
+{
+    Harness h;
+
+    mt::QuerySpec query;
+    query.predicates.push_back(
+        mt::QueryPredicate{
+            .op = mt::QueryOp::JsonContains,
+            .path = "$",
+            .value = mt::Json::object({{"email", "a@example.com"}})
+        }
+    );
+
+    h.txs.run([&](mt::Transaction& tx)
+              { EXPECT_THROW_AS(h.users.query(tx, query), mt::BackendError); });
+}
+
 void test_transactional_list_hides_own_pending_delete()
 {
     Harness h;
@@ -892,6 +987,11 @@ int main()
     test_transactional_read_your_own_point_write();
     test_transactional_list_reads_own_pending_put();
     test_transactional_query_reads_own_pending_matching_put();
+    test_transactional_json_equals_query_reads_own_pending_matching_put();
+    test_transactional_json_equals_query_excludes_pending_non_match();
+    test_transactional_json_equals_query_reflects_pending_replacement();
+    test_transactional_json_equals_query_hides_pending_delete();
+    test_transactional_query_rejects_json_contains();
     test_transactional_list_hides_own_pending_delete();
     test_transactional_list_reflects_own_pending_replacement();
     test_transactional_list_paginates_after_pending_write_overlay();

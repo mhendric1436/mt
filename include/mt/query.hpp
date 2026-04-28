@@ -1,5 +1,6 @@
 #pragma once
 
+#include "mt/errors.hpp"
 #include "mt/json.hpp"
 
 #include <cstddef>
@@ -89,5 +90,101 @@ struct IndexSpec
         return *this;
     }
 };
+
+inline std::optional<Json> json_path_value(
+    const Json& value,
+    const std::string& path
+)
+{
+    if (path == "$")
+    {
+        return value;
+    }
+    if (path.rfind("$.", 0) != 0)
+    {
+        throw BackendError("JSON paths must be '$' or start with '$.'");
+    }
+
+    const Json* current = &value;
+    std::size_t start = 2;
+    while (start <= path.size())
+    {
+        auto end = path.find('.', start);
+        auto segment =
+            path.substr(start, end == std::string::npos ? std::string::npos : end - start);
+        if (segment.empty() || !current->is_object())
+        {
+            return std::nullopt;
+        }
+
+        const auto& object = current->as_object();
+        auto it = object.find(segment);
+        if (it == object.end())
+        {
+            return std::nullopt;
+        }
+
+        current = &it->second;
+        if (end == std::string::npos)
+        {
+            break;
+        }
+        start = end + 1;
+    }
+
+    return *current;
+}
+
+inline bool matches_after_key(
+    const Key& key,
+    const std::optional<Key>& after_key
+)
+{
+    return !after_key || key > *after_key;
+}
+
+inline bool matches_query(
+    const Key& key,
+    const Json& value,
+    const QuerySpec& query
+)
+{
+    if (!matches_after_key(key, query.after_key))
+    {
+        return false;
+    }
+
+    for (const auto& predicate : query.predicates)
+    {
+        switch (predicate.op)
+        {
+        case QueryOp::KeyPrefix:
+            if (key.rfind(predicate.text, 0) != 0)
+            {
+                return false;
+            }
+            break;
+
+        case QueryOp::JsonEquals:
+            if (auto field = json_path_value(value, predicate.path))
+            {
+                if (*field != predicate.value)
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                return false;
+            }
+            break;
+
+        case QueryOp::JsonContains:
+            throw BackendError("JSON contains predicates are not supported");
+        }
+    }
+
+    return true;
+}
 
 } // namespace mt
