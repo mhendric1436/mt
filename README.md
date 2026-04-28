@@ -36,13 +36,11 @@ Known limitations:
 
 Current priority areas before treating `mt` as a stable library:
 
-1. Add production backend skeletons, starting with SQLite or PostgreSQL, to prove the
-   interface outside the in-memory backend.
-2. Expand generated schema validation so invalid metadata fails with clear diagnostics
+1. Expand generated schema validation so invalid metadata fails with clear diagnostics
    before C++ generation.
-3. Polish the public API, including retry callable ergonomics, constness, parameter
+2. Polish the public API, including retry callable ergonomics, constness, parameter
    passing, and table/query construction.
-4. Add open-source project infrastructure such as a license, CI workflow, contribution
+3. Add open-source project infrastructure such as a license, CI workflow, contribution
    guide, install guidance, and backend implementation documentation.
 
 ## Requirements
@@ -197,6 +195,8 @@ int main()
 - `include/mt/database.hpp`: database facade
 - `include/mt/transaction.hpp`: transaction state, validation, retry provider
 - `include/mt/table.hpp`: mapping concept and typed table facade
+- `include/mt/backends/sqlite.hpp`: dependency-free SQLite backend skeleton
+- `include/mt/backends/postgres.hpp`: dependency-free PostgreSQL backend skeleton
 - `src/backends/`: optional backend implementation files
 - `tools/mt_codegen.py`: JSON metadata to C++ header generator
 - `examples/schemas/user.mt.json`: example schema used by documentation and tests
@@ -245,8 +245,8 @@ The memory backend is header-only and available as:
 #include "mt/backends/memory.hpp"
 ```
 
-Future SQLite and PostgreSQL backends should be optional so core users do not need those
-dependencies.
+SQLite and PostgreSQL currently have dependency-free skeleton headers. Future concrete
+implementations should remain optional so core users do not need those dependencies.
 
 ## Formatting
 

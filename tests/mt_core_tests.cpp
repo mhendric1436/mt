@@ -1,4 +1,6 @@
 #include "mt/backends/memory.hpp"
+#include "mt/backends/postgres.hpp"
+#include "mt/backends/sqlite.hpp"
 #include "mt/core.hpp"
 
 #include <cassert>
@@ -155,6 +157,55 @@ void test_memory_backend_reports_capabilities()
     EXPECT_TRUE(capabilities.schema.json_indexes);
     EXPECT_TRUE(capabilities.schema.unique_indexes);
     EXPECT_FALSE(capabilities.schema.migrations);
+}
+
+void expect_skeleton_capabilities(const mt::BackendCapabilities& capabilities)
+{
+    EXPECT_FALSE(capabilities.query.key_prefix);
+    EXPECT_FALSE(capabilities.query.json_equals);
+    EXPECT_FALSE(capabilities.query.json_contains);
+    EXPECT_FALSE(capabilities.query.order_by_key);
+    EXPECT_FALSE(capabilities.query.custom_ordering);
+
+    EXPECT_FALSE(capabilities.schema.json_indexes);
+    EXPECT_FALSE(capabilities.schema.unique_indexes);
+    EXPECT_FALSE(capabilities.schema.migrations);
+}
+
+void test_sqlite_backend_skeleton_reports_no_capabilities()
+{
+    mt::backends::sqlite::SqliteBackend backend;
+    expect_skeleton_capabilities(backend.capabilities());
+}
+
+void test_postgres_backend_skeleton_reports_no_capabilities()
+{
+    mt::backends::postgres::PostgresBackend backend;
+    expect_skeleton_capabilities(backend.capabilities());
+}
+
+void test_sqlite_backend_skeleton_rejects_operations()
+{
+    mt::backends::sqlite::SqliteBackend backend;
+
+    EXPECT_THROW_AS(backend.open_session(), mt::BackendError);
+    EXPECT_THROW_AS(backend.bootstrap(mt::BootstrapSpec{}), mt::BackendError);
+    EXPECT_THROW_AS(
+        backend.ensure_collection(mt::CollectionSpec{.logical_name = "users"}), mt::BackendError
+    );
+    EXPECT_THROW_AS(backend.get_collection("users"), mt::BackendError);
+}
+
+void test_postgres_backend_skeleton_rejects_operations()
+{
+    mt::backends::postgres::PostgresBackend backend;
+
+    EXPECT_THROW_AS(backend.open_session(), mt::BackendError);
+    EXPECT_THROW_AS(backend.bootstrap(mt::BootstrapSpec{}), mt::BackendError);
+    EXPECT_THROW_AS(
+        backend.ensure_collection(mt::CollectionSpec{.logical_name = "users"}), mt::BackendError
+    );
+    EXPECT_THROW_AS(backend.get_collection("users"), mt::BackendError);
 }
 
 void test_backend_contract_transaction_ids_are_non_empty_and_unique()
@@ -971,6 +1022,10 @@ int main()
 {
     test_table_provider_creates_table();
     test_memory_backend_reports_capabilities();
+    test_sqlite_backend_skeleton_reports_no_capabilities();
+    test_postgres_backend_skeleton_reports_no_capabilities();
+    test_sqlite_backend_skeleton_rejects_operations();
+    test_postgres_backend_skeleton_rejects_operations();
     test_backend_contract_transaction_ids_are_non_empty_and_unique();
     test_backend_contract_commit_versions_strictly_increase();
     test_backend_contract_clock_increment_requires_lock_owner();

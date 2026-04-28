@@ -6,5 +6,7 @@ backend needs non-header implementation code.
 Current backend status:
 
 - `memory`: header-only, implemented in `include/mt/backends/memory.hpp`
-- `sqlite`: planned optional backend
-- `postgres`: planned optional backend
+- `sqlite`: dependency-free public skeleton in `include/mt/backends/sqlite.hpp`;
+  implementation planned under `src/backends/sqlite/`
+- `postgres`: dependency-free public skeleton in `include/mt/backends/postgres.hpp`;
+  implementation planned under `src/backends/postgres/`

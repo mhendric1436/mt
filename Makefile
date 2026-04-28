@@ -43,6 +43,8 @@ CORE_HEADERS := \
 	include/mt/transaction.hpp \
 	include/mt/table.hpp \
 	include/mt/backends/memory.hpp \
+	include/mt/backends/sqlite.hpp \
+	include/mt/backends/postgres.hpp \
 	$(CORE_HEADER)
 TEST_SRC    := tests/mt_core_tests.cpp
 CODEGEN_TEST_SRC := tests/mt_codegen_tests.cpp
