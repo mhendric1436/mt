@@ -25,8 +25,14 @@ def require_object(value, context):
     return value
 
 
+def require_present(schema, key):
+    if key not in schema:
+        fail(f"missing required field: {key}")
+    return schema[key]
+
+
 def require_string(schema, key):
-    value = schema.get(key)
+    value = require_present(schema, key)
     if not isinstance(value, str) or not value:
         fail(f"{key} must be a non-empty string")
     return value
@@ -49,6 +55,21 @@ def validate_namespace(value):
         return
     for segment in value.split("::"):
         validate_identifier(segment, "namespace segment")
+
+
+def validate_index_path(path, field_names, context):
+    if path == "$":
+        fail(f"{context} must reference a declared field")
+    if path.rfind("$.", 0) != 0:
+        fail(f"{context} must start with '$.'")
+
+    segments = path[2:].split(".")
+    if len(segments) != 1 or not segments[0]:
+        fail(f"{context} must reference a top-level generated field")
+
+    field_name = segments[0]
+    if field_name not in field_names:
+        fail(f"{context} references unknown field {field_name!r}")
 
 
 def cpp_string(value):
@@ -172,8 +193,9 @@ def validate_schema(schema):
     index_names = set()
     for index, item in enumerate(indexes):
         item = require_object(item, f"indexes[{index}]")
-        name = require_named_string(item, "name", "index.name")
-        path = require_named_string(item, "path", "index.path")
+        name = require_named_string(item, "name", f"indexes[{index}].name")
+        path = require_named_string(item, "path", f"indexes[{index}].path")
+        validate_index_path(path, seen, f"indexes[{index}].path")
         if name in index_names:
             fail(f"duplicate index name {name!r}")
         index_names.add(name)
@@ -301,7 +323,10 @@ def main():
         output = render(schema)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(output, encoding="utf-8")
-    except (OSError, json.JSONDecodeError, SchemaError) as exc:
+    except SchemaError as exc:
+        print(f"mt_codegen: schema error: {exc}", file=sys.stderr)
+        return 1
+    except (OSError, json.JSONDecodeError) as exc:
         print(f"mt_codegen: {exc}", file=sys.stderr)
         return 1
 

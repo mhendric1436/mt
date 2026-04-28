@@ -36,11 +36,9 @@ Known limitations:
 
 Current priority areas before treating `mt` as a stable library:
 
-1. Expand generated schema validation so invalid metadata fails with clear diagnostics
-   before C++ generation.
-2. Polish the public API, including retry callable ergonomics, constness, parameter
+1. Polish the public API, including retry callable ergonomics, constness, parameter
    passing, and table/query construction.
-3. Add open-source project infrastructure such as a license, CI workflow, contribution
+2. Add open-source project infrastructure such as a license, CI workflow, contribution
    guide, install guidance, and backend implementation documentation.
 
 ## Requirements

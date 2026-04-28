@@ -73,7 +73,7 @@ Generated C++ type mapping:
 Each index object requires:
 
 - `name`: index name.
-- `path`: JSON path string passed to `mt::IndexSpec::json_path_index`.
+- `path`: top-level generated field path such as `$.email`.
 
 Optional index properties:
 
@@ -127,7 +127,14 @@ The generator fails if:
 - a default value does not match the field type
 - `schema_version` is not a positive integer
 - index names are duplicated
+- index paths do not reference declared top-level generated fields
 - `unique` or `required` values are not booleans
+
+Schema validation errors are reported without a Python traceback:
+
+```text
+mt_codegen: schema error: missing required field: class_name
+```
 
 ## Current Limitations
 

@@ -50,12 +50,13 @@ TEST_SRC    := tests/mt_core_tests.cpp
 CODEGEN_TEST_SRC := tests/mt_codegen_tests.cpp
 HEADER_CHECK_SRC := src/mt_core.cpp
 CODEGEN := python3 tools/mt_codegen.py
+CODEGEN_VALIDATION_TEST := python3 tools/test_mt_codegen.py
 EXAMPLE_SCHEMA := examples/schemas/user.mt.json
 GENERATED_EXAMPLE_HEADER := $(GENERATED_DIR)/user.hpp
 FORMAT_FILES := $(CORE_HEADERS) $(HEADER_CHECK_SRC) $(TEST_SRC) $(CODEGEN_TEST_SRC)
 PUML_FILES := $(wildcard docs/*.puml)
 
-.PHONY: all build test check codegen-examples header-check format docs-png clean-docs clean rebuild print-config
+.PHONY: all build test check codegen-examples codegen-validation header-check format docs-png clean-docs clean rebuild print-config
 
 all: test
 
@@ -81,9 +82,12 @@ test: build
 	./$(TEST_BIN)
 	./$(CODEGEN_TEST_BIN)
 
-check: codegen-examples header-check test
+check: codegen-examples codegen-validation header-check test
 
 codegen-examples: $(GENERATED_EXAMPLE_HEADER)
+
+codegen-validation:
+	$(CODEGEN_VALIDATION_TEST)
 
 format:
 	$(CLANG_FORMAT) -i $(FORMAT_FILES)
@@ -109,6 +113,7 @@ print-config:
 	@echo "CLANG_FORMAT = $(CLANG_FORMAT)"
 	@echo "PLANTUML = $(PLANTUML)"
 	@echo "CODEGEN  = $(CODEGEN)"
+	@echo "CODEGEN_VALIDATION_TEST = $(CODEGEN_VALIDATION_TEST)"
 	@echo "CPPFLAGS = $(CPPFLAGS)"
 	@echo "CXXFLAGS = $(CXXFLAGS)"
 	@echo "LDFLAGS  = $(LDFLAGS)"
