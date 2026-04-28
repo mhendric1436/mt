@@ -212,7 +212,7 @@ catch (...)
 {
     if (tx.is_open())
     {
-        tx.rollback();
+        tx.abort();
     }
     throw;
 }

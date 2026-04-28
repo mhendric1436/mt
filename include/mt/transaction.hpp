@@ -103,7 +103,7 @@ class Transaction
             return *this;
         }
 
-        rollback_if_open();
+        abort_if_open();
 
         db_ = other.db_;
         session_ = std::move(other.session_);
@@ -123,7 +123,7 @@ class Transaction
 
     ~Transaction()
     {
-        rollback_if_open();
+        abort_if_open();
     }
 
     Version start_version() const noexcept
@@ -185,10 +185,10 @@ class Transaction
         }
     }
 
-    void rollback()
+    void abort()
     {
         ensure_open();
-        rollback_if_open();
+        abort_if_open();
     }
 
   private:
@@ -217,7 +217,7 @@ class Transaction
         }
     }
 
-    void rollback_if_open() noexcept
+    void abort_if_open() noexcept
     {
         if (finished_ || !session_)
         {
@@ -711,7 +711,7 @@ class TransactionProvider
         {
             if (tx.is_open())
             {
-                tx.rollback();
+                tx.abort();
             }
             throw;
         }

@@ -1067,21 +1067,21 @@ void test_retry_returns_non_void_result()
     EXPECT_EQ(h.users.require(id).name, std::string("Alice"));
 }
 
-void test_rollback_discards_writes()
+void test_abort_discards_writes()
 {
     Harness h;
 
     {
         auto tx = h.txs.begin();
         h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"});
-        tx.rollback();
+        tx.abort();
     }
 
     auto loaded = h.users.get("user:1");
     EXPECT_FALSE(loaded.has_value());
 }
 
-void test_destructor_rolls_back_uncommitted_transaction()
+void test_destructor_aborts_uncommitted_transaction()
 {
     Harness h;
 
@@ -1144,8 +1144,8 @@ int main()
     test_retry_accepts_inline_lambda_with_policy();
     test_retry_accepts_inline_lambda_with_default_policy();
     test_retry_returns_non_void_result();
-    test_rollback_discards_writes();
-    test_destructor_rolls_back_uncommitted_transaction();
+    test_abort_discards_writes();
+    test_destructor_aborts_uncommitted_transaction();
 
     std::cout << "All mt_core tests passed.\n";
     return 0;
