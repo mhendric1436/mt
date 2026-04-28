@@ -157,6 +157,88 @@ void test_memory_backend_reports_capabilities()
     EXPECT_FALSE(capabilities.schema.migrations);
 }
 
+void test_backend_contract_transaction_ids_are_non_empty_and_unique()
+{
+    Harness h;
+    auto session = h.backend->open_session();
+    session->begin_backend_transaction();
+
+    auto first = session->create_transaction_id();
+    auto second = session->create_transaction_id();
+
+    EXPECT_FALSE(first.empty());
+    EXPECT_FALSE(second.empty());
+    EXPECT_FALSE(first == second);
+
+    session->rollback_backend_transaction();
+}
+
+void test_backend_contract_commit_versions_strictly_increase()
+{
+    Harness h;
+
+    auto first_session = h.backend->open_session();
+    first_session->begin_backend_transaction();
+    first_session->lock_clock_and_read();
+    auto first_version = first_session->increment_clock_and_return();
+    first_session->commit_backend_transaction();
+
+    auto second_session = h.backend->open_session();
+    second_session->begin_backend_transaction();
+    second_session->lock_clock_and_read();
+    auto second_version = second_session->increment_clock_and_return();
+    second_session->commit_backend_transaction();
+
+    EXPECT_TRUE(second_version > first_version);
+}
+
+void test_backend_contract_snapshot_reads_remain_stable_after_later_commits()
+{
+    Harness h;
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        { h.users.put(tx, User{.id = "user:1", .email = "old@example.com", .name = "Old"}); }
+    );
+
+    auto session = h.backend->open_session();
+    session->begin_backend_transaction();
+    auto snapshot_version = session->read_clock();
+    session->commit_backend_transaction();
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        { h.users.put(tx, User{.id = "user:1", .email = "new@example.com", .name = "New"}); }
+    );
+
+    auto read_session = h.backend->open_session();
+    read_session->begin_backend_transaction();
+    auto doc = read_session->read_snapshot(h.users.descriptor().id, "user:1", snapshot_version);
+    read_session->commit_backend_transaction();
+
+    EXPECT_TRUE(doc.has_value());
+    EXPECT_EQ(doc->value["email"].as_string(), std::string("old@example.com"));
+}
+
+void test_backend_contract_delete_tombstone_metadata_remains_visible()
+{
+    Harness h;
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        { h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"}); }
+    );
+    h.txs.run([&](mt::Transaction& tx) { h.users.erase(tx, "user:1"); });
+
+    auto session = h.backend->open_session();
+    session->begin_backend_transaction();
+    auto metadata = session->read_current_metadata(h.users.descriptor().id, "user:1");
+    session->commit_backend_transaction();
+
+    EXPECT_TRUE(metadata.has_value());
+    EXPECT_TRUE(metadata->deleted);
+}
+
 void test_json_values_round_trip_and_hash_stably()
 {
     User expected{
@@ -693,6 +775,10 @@ int main()
 {
     test_table_provider_creates_table();
     test_memory_backend_reports_capabilities();
+    test_backend_contract_transaction_ids_are_non_empty_and_unique();
+    test_backend_contract_commit_versions_strictly_increase();
+    test_backend_contract_snapshot_reads_remain_stable_after_later_commits();
+    test_backend_contract_delete_tombstone_metadata_remains_visible();
     test_json_values_round_trip_and_hash_stably();
     test_non_transactional_get_missing_returns_nullopt();
     test_transactional_put_then_non_transactional_get();

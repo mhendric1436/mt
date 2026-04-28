@@ -36,9 +36,9 @@ Known limitations:
 
 Current priority areas before treating `mt` as a stable library:
 
-1. Define the backend contract more rigorously, including atomicity, clock locking,
-   session lifetime, rollback behavior, transaction ID ownership, and required isolation
-   behavior.
+1. Define the backend contract more rigorously, including session lifecycle, atomic
+   commit boundaries, clock locking, transaction ID ownership, required isolation
+   behavior, and rollback as transaction/resource cleanup rather than logical undo.
 2. Harden transaction commit semantics by documenting and testing the required atomic
    relationship between history insertion, current-row upserts, and backend commits.
 3. Improve predicate and query validation, especially around read-your-writes behavior
@@ -210,6 +210,7 @@ int main()
 - `tests/mt_core_tests.cpp`: test suite
 - `tests/mt_codegen_tests.cpp`: generated-code test suite
 - `src/mt_core.cpp`: header syntax-check translation unit
+- `docs/backend_contract.md`: backend implementation contract
 
 ## Backend Model
 
@@ -225,6 +226,9 @@ transaction IDs.
 Backends also report `BackendCapabilities`. The typed table API uses those capabilities
 to reject unsupported query, ordering, index, and migration features before invoking a
 backend session. Backend implementations should still validate defensively.
+
+Backend authors should read `docs/backend_contract.md` before implementing
+`IDatabaseBackend`.
 
 For production storage engines, implement these interfaces in a separate backend module
 and include `mt/backend.hpp` rather than the full umbrella header when possible.
