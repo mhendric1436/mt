@@ -52,7 +52,7 @@ class IBackendSession
 
     // Aborts/closes the backend transaction and releases resources. This is
     // cleanup, not logical undo of committed mt changes.
-    virtual void rollback_backend_transaction() noexcept = 0;
+    virtual void abort_backend_transaction() noexcept = 0;
 
     // Returns the latest committed version for a new snapshot.
     virtual Version read_clock() = 0;

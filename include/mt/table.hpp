@@ -201,7 +201,7 @@ template <class Row, class Mapping> class Table
         }
         catch (...)
         {
-            session->rollback_backend_transaction();
+            session->abort_backend_transaction();
             throw;
         }
     }
@@ -231,7 +231,7 @@ template <class Row, class Mapping> class Table
         }
         catch (...)
         {
-            session->rollback_backend_transaction();
+            session->abort_backend_transaction();
             throw;
         }
     }
@@ -253,7 +253,7 @@ template <class Row, class Mapping> class Table
         }
         catch (...)
         {
-            session->rollback_backend_transaction();
+            session->abort_backend_transaction();
             throw;
         }
     }

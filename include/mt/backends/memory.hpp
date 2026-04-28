@@ -75,7 +75,7 @@ class MemorySession final : public IBackendSession
         in_backend_tx_ = false;
     }
 
-    void rollback_backend_transaction() noexcept override
+    void abort_backend_transaction() noexcept override
     {
         release_clock_if_locked();
         in_backend_tx_ = false;

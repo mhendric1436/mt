@@ -166,7 +166,7 @@ class Transaction
         {
             try
             {
-                session_->rollback_backend_transaction();
+                session_->abort_backend_transaction();
             }
             catch (...)
             {
@@ -226,7 +226,7 @@ class Transaction
 
         try
         {
-            session_->rollback_backend_transaction();
+            session_->abort_backend_transaction();
         }
         catch (...)
         {
@@ -683,7 +683,7 @@ class TransactionProvider
         }
         catch (...)
         {
-            session->rollback_backend_transaction();
+            session->abort_backend_transaction();
             throw;
         }
     }

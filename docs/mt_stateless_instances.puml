@@ -91,7 +91,7 @@ The backend is responsible for shared coordination:
 - version clock
 - snapshot reads
 - conflict checks
-- atomic commit/rollback
+- atomic commit/abort
 end note
 
 note bottom of Store

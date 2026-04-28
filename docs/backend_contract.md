@@ -14,7 +14,7 @@ transaction. Partial visibility is forbidden.
 transaction. `commit_backend_transaction()` is the visibility boundary. If the backend
 commit fails, no mt commit mutations from that transaction may become visible.
 
-`rollback_backend_transaction()` aborts or closes the backend transaction and releases
+`abort_backend_transaction()` aborts or closes the backend transaction and releases
 resources. It is not a logical undo API for committed mt changes.
 
 ## Core Commit Sequence
@@ -38,7 +38,7 @@ written by that transaction. History and current state must become visible toget
 `commit_backend_transaction()` succeeds.
 
 If validation, staging, cleanup, or backend commit fails, core calls
-`rollback_backend_transaction()`. A valid backend must ensure that failed commits do not
+`abort_backend_transaction()`. A valid backend must ensure that failed commits do not
 make staged history rows, current rows, or active transaction cleanup partially visible.
 
 ## Session Lifecycle
@@ -49,7 +49,7 @@ A normal session follows this flow:
 open_session()
 begin_backend_transaction()
 read, validate, and write operations
-commit_backend_transaction() or rollback_backend_transaction()
+commit_backend_transaction() or abort_backend_transaction()
 destroy session
 ```
 
@@ -57,7 +57,7 @@ A session represents one logical backend transaction and is not required to be
 thread-safe. Backend implementations may require all session methods except destruction
 to be called by one thread.
 
-`rollback_backend_transaction()` must be `noexcept`. It should be best-effort cleanup and
+`abort_backend_transaction()` must be `noexcept`. It should be best-effort cleanup and
 should tolerate repeated cleanup attempts where practical. Destructors must not throw.
 
 ## Clock And Version Semantics
@@ -140,7 +140,7 @@ A production backend must provide:
 - current metadata suitable for conflict detection
 - consistent query/list semantics across snapshot and metadata methods
 - truthful capability reporting
-- best-effort, non-throwing rollback cleanup
+- best-effort, non-throwing abort cleanup
 
 The in-memory backend is useful for tests and local development, but it is not a
 production storage engine.

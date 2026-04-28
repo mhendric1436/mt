@@ -111,7 +111,7 @@ partition "mt Core" {
     :Mark transaction finished;
   else (no)
     partition "Backend" {
-      :rollback_backend_transaction();
+      :abort_backend_transaction();
       :unregister_active_transaction();
     }
     :Throw TransactionConflict;

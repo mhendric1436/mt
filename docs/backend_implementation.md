@@ -59,13 +59,13 @@ Each `IBackendSession` represents one logical backend transaction:
 ```text
 begin_backend_transaction()
 read/validate/write operations
-commit_backend_transaction() or rollback_backend_transaction()
+commit_backend_transaction() or abort_backend_transaction()
 ```
 
 Commit mutations must be staged inside one atomic backend transaction. History rows,
 current metadata, and active transaction cleanup must not become partially visible.
 
-Rollback is cleanup for the backend transaction and resources. It is not a compensating
+Abort is cleanup for the backend transaction and resources. It is not a compensating
 undo mechanism for committed mt changes.
 
 ## Required Tests
