@@ -1,0 +1,136 @@
+@startuml mt_use_cases_flow
+
+title mt Key Use Case Flow
+
+skinparam shadowing false
+
+start
+
+partition "Application" {
+  :Create backend implementation;
+  :Create mt::Database;
+  :Create mt::TransactionProvider;
+  :Create mt::TableProvider;
+}
+
+partition "mt Core" {
+  :Database bootstraps backend metadata;
+  :Request table<Row, Mapping>();
+
+  if (Descriptor cached?) then (yes)
+    :Reuse cached CollectionDescriptor;
+  else (no)
+    :Build CollectionSpec from Mapping;
+
+    if (Backend capabilities support schema?) then (yes)
+      partition "Backend" {
+        :ensure_collection(spec);
+      }
+      :Cache CollectionDescriptor;
+    else (no)
+      :Throw BackendError;
+      stop
+    endif
+  endif
+}
+
+partition "Application" {
+  :Run transaction;
+}
+
+partition "mt Core" {
+  :Open backend session;
+  :begin_backend_transaction();
+}
+
+partition "Backend" {
+  :read_clock();
+  :create_transaction_id();
+  :register_active_transaction();
+}
+
+partition "Application" {
+  :Execute business logic;
+}
+
+partition "mt Core" {
+  if (Read document?) then (yes)
+    partition "Backend" {
+      :read_snapshot(collection, key, start_version);
+    }
+
+    if (Document found?) then (yes)
+      :Decode Row from Json;
+    else (no)
+      :Return null optional or throw DocumentNotFound;
+    endif
+  endif
+
+  if (Write document?) then (yes)
+    :Encode Row to Json;
+    :Hash Json value;
+    :Record pending WriteEnvelope;
+  endif
+
+  if (List or query?) then (yes)
+    if (Backend capabilities support query?) then (yes)
+      partition "Backend" {
+        :list_snapshot() or query_snapshot();
+      }
+      :Record predicate read set;
+      :Overlay pending writes;
+      :Decode matching rows;
+    else (no)
+      :Throw BackendError;
+      stop
+    endif
+  endif
+}
+
+partition "Application" {
+  :Request commit;
+}
+
+partition "mt Core" {
+  partition "Backend" {
+    :lock_clock_and_read();
+  }
+
+  :Validate point read set;
+  :Validate write conflicts;
+  :Validate predicate read set;
+
+  if (Validation succeeds?) then (yes)
+    partition "Backend" {
+      :increment_clock_and_return();
+      :insert_history() for each write;
+      :upsert_current() for each write;
+      :unregister_active_transaction();
+      :commit_backend_transaction();
+    }
+    :Mark transaction finished;
+  else (no)
+    partition "Backend" {
+      :rollback_backend_transaction();
+      :unregister_active_transaction();
+    }
+    :Throw TransactionConflict;
+  endif
+}
+
+partition "Application" {
+  if (Conflict thrown?) then (yes)
+    if (Retry attempts remaining?) then (yes)
+      :Run transaction again;
+      --> "Run transaction";
+    else (no)
+      :Return failure to caller;
+    endif
+  else (no)
+    :Use committed result;
+  endif
+}
+
+stop
+
+@enduml
