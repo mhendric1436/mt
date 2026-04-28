@@ -150,6 +150,8 @@ class Transaction
 
             auto commit_version = session_->increment_clock_and_return();
 
+            // These writes are staged inside the backend transaction. The
+            // backend commit is the atomic visibility boundary.
             for (const auto& [_, write] : write_set_)
             {
                 session_->insert_history(write.collection, write, commit_version);

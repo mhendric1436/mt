@@ -192,6 +192,38 @@ void test_backend_contract_commit_versions_strictly_increase()
     EXPECT_TRUE(second_version > first_version);
 }
 
+void test_backend_contract_clock_increment_requires_lock_owner()
+{
+    Harness h;
+
+    auto unlocked_session = h.backend->open_session();
+    unlocked_session->begin_backend_transaction();
+    EXPECT_THROW_AS(unlocked_session->increment_clock_and_return(), mt::BackendError);
+    unlocked_session->rollback_backend_transaction();
+
+    auto locked_session = h.backend->open_session();
+    locked_session->begin_backend_transaction();
+    locked_session->lock_clock_and_read();
+
+    auto blocked_session = h.backend->open_session();
+    blocked_session->begin_backend_transaction();
+    EXPECT_THROW_AS(blocked_session->lock_clock_and_read(), mt::BackendError);
+
+    blocked_session->rollback_backend_transaction();
+    locked_session->rollback_backend_transaction();
+}
+
+void test_backend_contract_cleanup_tolerates_missing_active_transaction()
+{
+    Harness h;
+    auto session = h.backend->open_session();
+    session->begin_backend_transaction();
+
+    session->unregister_active_transaction("missing-transaction");
+    session->rollback_backend_transaction();
+    session->rollback_backend_transaction();
+}
+
 void test_backend_contract_snapshot_reads_remain_stable_after_later_commits()
 {
     Harness h;
@@ -777,6 +809,8 @@ int main()
     test_memory_backend_reports_capabilities();
     test_backend_contract_transaction_ids_are_non_empty_and_unique();
     test_backend_contract_commit_versions_strictly_increase();
+    test_backend_contract_clock_increment_requires_lock_owner();
+    test_backend_contract_cleanup_tolerates_missing_active_transaction();
     test_backend_contract_snapshot_reads_remain_stable_after_later_commits();
     test_backend_contract_delete_tombstone_metadata_remains_visible();
     test_json_values_round_trip_and_hash_stably();
