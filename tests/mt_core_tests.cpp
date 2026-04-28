@@ -991,6 +991,82 @@ void test_retry_retries_on_conflict()
     EXPECT_EQ(loaded.email, std::string("external@example.com"));
 }
 
+void test_retry_accepts_inline_lambda_with_policy()
+{
+    Harness h;
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        { h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"}); }
+    );
+
+    int attempts = 0;
+    mt::RetryPolicy policy;
+    policy.max_attempts = 2;
+
+    h.txs.retry(
+        policy,
+        [&](mt::Transaction& tx)
+        {
+            ++attempts;
+
+            auto user = h.users.require(tx, "user:1");
+            user.login_count += 1;
+
+            if (attempts == 1)
+            {
+                h.txs.run(
+                    [&](mt::Transaction& other)
+                    {
+                        h.users.put(
+                            other, User{
+                                       .id = "user:1",
+                                       .email = "external@example.com",
+                                       .name = "External",
+                                       .active = true,
+                                       .login_count = 10
+                                   }
+                        );
+                    }
+                );
+            }
+
+            h.users.put(tx, user);
+        }
+    );
+
+    EXPECT_EQ(attempts, 2);
+    EXPECT_EQ(h.users.require("user:1").login_count, std::int64_t{11});
+}
+
+void test_retry_accepts_inline_lambda_with_default_policy()
+{
+    Harness h;
+
+    h.txs.retry(
+        [&](mt::Transaction& tx)
+        { h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"}); }
+    );
+
+    EXPECT_EQ(h.users.require("user:1").email, std::string("a@example.com"));
+}
+
+void test_retry_returns_non_void_result()
+{
+    Harness h;
+
+    auto id = h.txs.retry(
+        [&](mt::Transaction& tx)
+        {
+            h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"});
+            return std::string("user:1");
+        }
+    );
+
+    EXPECT_EQ(id, std::string("user:1"));
+    EXPECT_EQ(h.users.require(id).name, std::string("Alice"));
+}
+
 void test_rollback_discards_writes()
 {
     Harness h;
@@ -1065,6 +1141,9 @@ int main()
     test_list_predicate_conflict_on_insert();
     test_query_predicate_conflict_on_matching_insert();
     test_retry_retries_on_conflict();
+    test_retry_accepts_inline_lambda_with_policy();
+    test_retry_accepts_inline_lambda_with_default_policy();
+    test_retry_returns_non_void_result();
     test_rollback_discards_writes();
     test_destructor_rolls_back_uncommitted_transaction();
 

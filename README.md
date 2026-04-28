@@ -30,15 +30,12 @@ Known limitations:
 - memory backend query filtering supports key-prefix and JSON equality predicates only
 - JSON contains predicates and non-key ordering are explicitly rejected by the memory backend
 - migrations are modeled but explicitly rejected by the memory backend
-- `TransactionProvider::retry` currently requires a named callable
 
 ## Key Findings
 
 Current priority areas before treating `mt` as a stable library:
 
-1. Polish the public API, including retry callable ergonomics, constness, parameter
-   passing, and table/query construction.
-2. Add open-source project infrastructure such as a license, CI workflow, contribution
+1. Add open-source project infrastructure such as a license, CI workflow, contribution
    guide, install guidance, and backend implementation documentation.
 
 ## Requirements

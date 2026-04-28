@@ -720,7 +720,7 @@ class TransactionProvider
     template <class Fn>
     decltype(auto) retry(
         RetryPolicy policy,
-        Fn& fn
+        Fn&& fn
     )
     {
         for (std::size_t attempt = 0; attempt < policy.max_attempts; ++attempt)
@@ -740,6 +740,11 @@ class TransactionProvider
         }
 
         throw TransactionConflict("retry attempts exhausted");
+    }
+
+    template <class Fn> decltype(auto) retry(Fn&& fn)
+    {
+        return retry(RetryPolicy{}, std::forward<Fn>(fn));
     }
 
   private:
