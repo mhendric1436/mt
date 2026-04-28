@@ -31,13 +31,6 @@ Known limitations:
 - JSON contains predicates and non-key ordering are explicitly rejected by the memory backend
 - migrations are modeled but explicitly rejected by the memory backend
 
-## Key Findings
-
-Current priority areas before treating `mt` as a stable library:
-
-1. Add open-source project infrastructure such as a license, CI workflow, contribution
-   guide, install guidance, and backend implementation documentation.
-
 ## Requirements
 
 - C++20 compiler
@@ -71,6 +64,31 @@ make clean
 
 `make check` syntax-checks the public headers through `src/mt_core.cpp` and runs the test
 binaries.
+
+## Using mt
+
+The core library is header-only. Add this repository's `include/` directory to your
+compiler include path:
+
+```sh
+c++ -std=c++20 -I/path/to/mt/include ...
+```
+
+For the full public API, include:
+
+```cpp
+#include "mt/core.hpp"
+```
+
+For local development or tests, include the memory backend separately:
+
+```cpp
+#include "mt/backends/memory.hpp"
+```
+
+SQLite and PostgreSQL currently have dependency-free skeleton headers. Future concrete
+backend implementations should remain optional so users of the core library do not need
+database client dependencies.
 
 ## Code Generation
 
@@ -232,6 +250,8 @@ handle retries at a higher level.
 - `tests/mt_codegen_tests.cpp`: generated-code test suite
 - `src/mt_core.cpp`: header syntax-check translation unit
 - `docs/backend_contract.md`: backend implementation contract
+- `docs/backend_implementation.md`: backend implementation guide
+- `.github/workflows/ci.yml`: GitHub Actions workflow
 
 ## Backend Model
 
@@ -249,7 +269,8 @@ to reject unsupported query, ordering, index, and migration features before invo
 backend session. Backend implementations should still validate defensively.
 
 Backend authors should read `docs/backend_contract.md` before implementing
-`IDatabaseBackend`.
+`IDatabaseBackend`. They should also follow `docs/backend_implementation.md` for
+directory layout, dependency isolation, capability reporting, and backend test coverage.
 
 For production storage engines, implement these interfaces in a separate backend module
 and include `mt/backend.hpp` rather than the full umbrella header when possible.
@@ -276,6 +297,15 @@ The memory backend is header-only and available as:
 SQLite and PostgreSQL currently have dependency-free skeleton headers. Future concrete
 implementations should remain optional so core users do not need those dependencies.
 
+## Documentation Diagrams
+
+PlantUML diagrams live under `docs/`.
+
+```sh
+make docs-png
+make clean-docs
+```
+
 ## Formatting
 
 The project uses `.clang-format`.
@@ -286,16 +316,8 @@ make format
 
 ## Contributing
 
-Keep changes small and covered by `make check`. Prefer extending the existing backend
-interfaces and tests before changing public API behavior.
-
-Good first areas:
-
-- extend JSON predicate support beyond equality
-- extend code generation for optional fields and richer JSON shapes
-- improve retry callable ergonomics
+See `CONTRIBUTING.md`.
 
 ## License
 
-No license has been selected yet. Add a license before publishing this repository for
-public reuse.
+MIT. See `LICENSE`.

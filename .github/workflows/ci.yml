@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format g++ make plantuml
+
+      - name: Build and test
+        run: make check CXX=g++
+
+      - name: Check formatting
+        run: |
+          make format
+          git diff --exit-code
+
+      - name: Render PlantUML diagrams
+        run: make docs-png
