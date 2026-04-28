@@ -22,6 +22,73 @@
 namespace mt
 {
 
+inline void require_query_capabilities(
+    const BackendCapabilities& capabilities,
+    const QuerySpec& query
+)
+{
+    if (!query.order_by_key && !capabilities.query.custom_ordering)
+    {
+        throw BackendError("backend does not support non-key query ordering");
+    }
+
+    if (query.order_by_key && !capabilities.query.order_by_key)
+    {
+        throw BackendError("backend does not support key query ordering");
+    }
+
+    for (const auto& predicate : query.predicates)
+    {
+        switch (predicate.op)
+        {
+        case QueryOp::KeyPrefix:
+            if (!capabilities.query.key_prefix)
+            {
+                throw BackendError("backend does not support key-prefix predicates");
+            }
+            break;
+
+        case QueryOp::JsonEquals:
+            if (!capabilities.query.json_equals)
+            {
+                throw BackendError("backend does not support JSON equality predicates");
+            }
+            break;
+
+        case QueryOp::JsonContains:
+            if (!capabilities.query.json_contains)
+            {
+                throw BackendError("backend does not support JSON contains predicates");
+            }
+            break;
+        }
+    }
+}
+
+inline void require_schema_capabilities(
+    const BackendCapabilities& capabilities,
+    const CollectionSpec& spec
+)
+{
+    if (!spec.migrations.empty() && !capabilities.schema.migrations)
+    {
+        throw BackendError("backend does not support collection migrations");
+    }
+
+    if (!spec.indexes.empty() && !capabilities.schema.json_indexes)
+    {
+        throw BackendError("backend does not support JSON indexes");
+    }
+
+    for (const auto& index : spec.indexes)
+    {
+        if (index.unique && !capabilities.schema.unique_indexes)
+        {
+            throw BackendError("backend does not support unique indexes");
+        }
+    }
+}
+
 template <class Mapping, class Row>
 concept RowMapping = requires(Row row, Json json) {
     { Mapping::table_name } -> std::convertible_to<std::string_view>;
@@ -171,6 +238,8 @@ template <class Row, class Mapping> class Table
 
     std::vector<Row> query(const QuerySpec& query) const
     {
+        require_query_capabilities(db_->backend().capabilities(), query);
+
         auto session = db_->backend().open_session();
         session->begin_backend_transaction();
 
@@ -228,6 +297,8 @@ template <class Row, class Mapping> class Table
         const QuerySpec& query
     ) const
     {
+        require_query_capabilities(db_->backend().capabilities(), query);
+
         auto result = tx.query_documents(descriptor_.id, query);
         return decode_rows(result);
     }
@@ -297,6 +368,8 @@ TableProvider::table()
         .schema_version = mapping_schema_version_or_default<Mapping>(),
         .migrations = mapping_migrations_or_empty<Mapping>()
     };
+
+    require_schema_capabilities(db_->backend().capabilities(), spec);
 
     auto descriptor = db_->backend().ensure_collection(spec);
     db_->metadata().put(descriptor);

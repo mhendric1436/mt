@@ -141,6 +141,22 @@ void test_table_provider_creates_table()
     EXPECT_TRUE(h.users.descriptor().id != 0);
 }
 
+void test_memory_backend_reports_capabilities()
+{
+    Harness h;
+    auto capabilities = h.backend->capabilities();
+
+    EXPECT_TRUE(capabilities.query.key_prefix);
+    EXPECT_TRUE(capabilities.query.json_equals);
+    EXPECT_FALSE(capabilities.query.json_contains);
+    EXPECT_TRUE(capabilities.query.order_by_key);
+    EXPECT_FALSE(capabilities.query.custom_ordering);
+
+    EXPECT_TRUE(capabilities.schema.json_indexes);
+    EXPECT_TRUE(capabilities.schema.unique_indexes);
+    EXPECT_FALSE(capabilities.schema.migrations);
+}
+
 void test_json_values_round_trip_and_hash_stably()
 {
     User expected{
@@ -676,6 +692,7 @@ void test_destructor_rolls_back_uncommitted_transaction()
 int main()
 {
     test_table_provider_creates_table();
+    test_memory_backend_reports_capabilities();
     test_json_values_round_trip_and_hash_stably();
     test_non_transactional_get_missing_returns_nullopt();
     test_transactional_put_then_non_transactional_get();

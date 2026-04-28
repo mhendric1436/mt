@@ -620,6 +620,23 @@ class MemoryBackend final : public IDatabaseBackend
     {
     }
 
+    BackendCapabilities capabilities() const override
+    {
+        return BackendCapabilities{
+            .query =
+                QueryCapabilities{
+                    .key_prefix = true,
+                    .json_equals = true,
+                    .json_contains = false,
+                    .order_by_key = true,
+                    .custom_ordering = false
+                },
+            .schema = SchemaCapabilities{
+                .json_indexes = true, .unique_indexes = true, .migrations = false
+            }
+        };
+    }
+
     std::unique_ptr<IBackendSession> open_session() override
     {
         return std::make_unique<MemorySession>(state_);

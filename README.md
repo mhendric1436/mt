@@ -224,6 +224,10 @@ The core expects the backend to provide snapshot reads, current metadata reads,
 history insertion, current-row upserts, clock/version operations, and backend-specific
 transaction IDs.
 
+Backends also report `BackendCapabilities`. The typed table API uses those capabilities
+to reject unsupported query, ordering, index, and migration features before invoking a
+backend session. Backend implementations should still validate defensively.
+
 For production storage engines, implement these interfaces in a separate backend module
 and include `mt/backend.hpp` rather than the full umbrella header when possible.
 
