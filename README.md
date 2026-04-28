@@ -179,6 +179,39 @@ int main()
 }
 ```
 
+## Transaction Retry
+
+`TransactionProvider::retry()` is optional. Callers can manage transaction boundaries
+directly with `begin()` and `Transaction::commit()` when they need full control.
+
+```cpp
+auto tx = txs.begin();
+try
+{
+    auto user = users.require(tx, "user:1");
+    user.name = "Alice Updated";
+    users.put(tx, user);
+    tx.commit();
+}
+catch (...)
+{
+    if (tx.is_open())
+    {
+        tx.rollback();
+    }
+    throw;
+}
+```
+
+`retry()` wraps the common optimistic-concurrency case where `commit()` throws
+`TransactionConflict`. It re-runs the whole transaction body from a fresh snapshot, so it
+can fix conflicts caused by concurrent commits that changed data read by the transaction.
+
+Use `retry()` only when the transaction body is safe to run more than once. Avoid
+non-idempotent external side effects inside a retry body, such as sending email,
+publishing messages, calling external APIs, or charging payments. Those workflows should
+handle retries at a higher level.
+
 ## Repository Layout
 
 - `include/mt/core.hpp`: umbrella header for the full public API
