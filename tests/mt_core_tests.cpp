@@ -271,6 +271,75 @@ void test_backend_contract_delete_tombstone_metadata_remains_visible()
     EXPECT_TRUE(metadata->deleted);
 }
 
+void test_commit_semantics_history_and_current_share_commit_version()
+{
+    Harness h;
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        { h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"}); }
+    );
+
+    auto session = h.backend->open_session();
+    session->begin_backend_transaction();
+    auto current = session->read_current_metadata(h.users.descriptor().id, "user:1");
+    EXPECT_TRUE(current.has_value());
+    auto history = session->read_snapshot(h.users.descriptor().id, "user:1", current->version);
+    session->commit_backend_transaction();
+
+    EXPECT_TRUE(history.has_value());
+    EXPECT_EQ(history->version, current->version);
+    EXPECT_EQ(history->value_hash, current->value_hash);
+}
+
+void test_commit_semantics_delete_history_and_current_share_commit_version()
+{
+    Harness h;
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        { h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"}); }
+    );
+    h.txs.run([&](mt::Transaction& tx) { h.users.erase(tx, "user:1"); });
+
+    auto session = h.backend->open_session();
+    session->begin_backend_transaction();
+    auto current = session->read_current_metadata(h.users.descriptor().id, "user:1");
+    EXPECT_TRUE(current.has_value());
+    auto history = session->read_snapshot(h.users.descriptor().id, "user:1", current->version);
+    session->commit_backend_transaction();
+
+    EXPECT_TRUE(history.has_value());
+    EXPECT_TRUE(current->deleted);
+    EXPECT_TRUE(history->deleted);
+    EXPECT_EQ(history->version, current->version);
+}
+
+void test_commit_semantics_conflict_does_not_make_write_visible()
+{
+    Harness h;
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        { h.users.put(tx, User{.id = "user:1", .email = "a@example.com", .name = "Alice"}); }
+    );
+
+    auto conflicting = h.txs.begin();
+    auto winner = h.txs.begin();
+
+    auto loaded = h.users.require(conflicting, "user:1");
+    loaded.email = "conflict@example.com";
+
+    h.users.put(winner, User{.id = "user:1", .email = "winner@example.com", .name = "Winner"});
+    winner.commit();
+
+    h.users.put(conflicting, loaded);
+    EXPECT_THROW_AS(conflicting.commit(), mt::TransactionConflict);
+
+    auto after = h.users.require("user:1");
+    EXPECT_EQ(after.email, std::string("winner@example.com"));
+}
+
 void test_json_values_round_trip_and_hash_stably()
 {
     User expected{
@@ -813,6 +882,9 @@ int main()
     test_backend_contract_cleanup_tolerates_missing_active_transaction();
     test_backend_contract_snapshot_reads_remain_stable_after_later_commits();
     test_backend_contract_delete_tombstone_metadata_remains_visible();
+    test_commit_semantics_history_and_current_share_commit_version();
+    test_commit_semantics_delete_history_and_current_share_commit_version();
+    test_commit_semantics_conflict_does_not_make_write_visible();
     test_json_values_round_trip_and_hash_stably();
     test_non_transactional_get_missing_returns_nullopt();
     test_transactional_put_then_non_transactional_get();

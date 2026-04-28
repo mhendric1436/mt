@@ -17,6 +17,30 @@ commit fails, no mt commit mutations from that transaction may become visible.
 `rollback_backend_transaction()` aborts or closes the backend transaction and releases
 resources. It is not a logical undo API for committed mt changes.
 
+## Core Commit Sequence
+
+Core commits a transaction in this order:
+
+```text
+lock commit clock
+validate point reads
+validate write conflicts
+validate predicate reads
+allocate commit version
+stage each history row
+stage each current row
+remove active transaction metadata
+commit backend transaction
+```
+
+The allocated commit version applies to every history row and current metadata row
+written by that transaction. History and current state must become visible together when
+`commit_backend_transaction()` succeeds.
+
+If validation, staging, cleanup, or backend commit fails, core calls
+`rollback_backend_transaction()`. A valid backend must ensure that failed commits do not
+make staged history rows, current rows, or active transaction cleanup partially visible.
+
 ## Session Lifecycle
 
 A normal session follows this flow:

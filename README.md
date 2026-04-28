@@ -36,17 +36,15 @@ Known limitations:
 
 Current priority areas before treating `mt` as a stable library:
 
-1. Harden transaction commit semantics by documenting and testing the required atomic
-   relationship between history insertion, current-row upserts, and backend commits.
-2. Improve predicate and query validation, especially around read-your-writes behavior
+1. Improve predicate and query validation, especially around read-your-writes behavior
    for JSON predicates and backend-specific query limitations.
-3. Add production backend skeletons, starting with SQLite or PostgreSQL, to prove the
+2. Add production backend skeletons, starting with SQLite or PostgreSQL, to prove the
    interface outside the in-memory backend.
-4. Expand generated schema validation so invalid metadata fails with clear diagnostics
+3. Expand generated schema validation so invalid metadata fails with clear diagnostics
    before C++ generation.
-5. Polish the public API, including retry callable ergonomics, constness, parameter
+4. Polish the public API, including retry callable ergonomics, constness, parameter
    passing, and table/query construction.
-6. Add open-source project infrastructure such as a license, CI workflow, contribution
+5. Add open-source project infrastructure such as a license, CI workflow, contribution
    guide, install guidance, and backend implementation documentation.
 
 ## Requirements
