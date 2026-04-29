@@ -143,3 +143,7 @@ mt_codegen: schema error: missing required field: class_name
 - no enum support
 - no custom includes or custom C++ type overrides
 - `required` is metadata only; missing fields currently fail through `mt::Json` accessors
+
+The core `mt::Json` type supports null and array values. Code generation for
+`std::optional<T>`, arrays, and nested generated objects is planned but not implemented
+yet.

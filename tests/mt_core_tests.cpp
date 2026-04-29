@@ -420,6 +420,33 @@ void test_json_values_round_trip_and_hash_stably()
     EXPECT_FALSE(mt::hash_json(user_json) == mt::hash_json(changed_json));
 }
 
+void test_json_null_and_array_helpers()
+{
+    auto null_value = mt::Json::null();
+    EXPECT_TRUE(null_value.is_null());
+    EXPECT_EQ(null_value.canonical_string(), std::string("null"));
+
+    auto array_value = mt::Json::array(
+        {mt::Json::null(), "tag", std::int64_t{7}, mt::Json::object({{"nested", true}})}
+    );
+
+    EXPECT_TRUE(array_value.is_array());
+    EXPECT_EQ(array_value.as_array().size(), std::size_t{4});
+    EXPECT_TRUE(array_value.as_array()[0].is_null());
+    EXPECT_EQ(array_value.as_array()[1].as_string(), std::string("tag"));
+    EXPECT_EQ(array_value.as_array()[2].as_int64(), std::int64_t{7});
+
+    auto same_array = mt::Json::array(
+        mt::Json::Array{
+            mt::Json::null(), "tag", std::int64_t{7},
+            mt::Json::object(mt::Json::Object{{"nested", true}})
+        }
+    );
+
+    EXPECT_EQ(array_value.canonical_string(), same_array.canonical_string());
+    EXPECT_EQ(mt::hash_json(array_value), mt::hash_json(same_array));
+}
+
 void test_non_transactional_get_missing_returns_nullopt()
 {
     Harness h;
@@ -1112,6 +1139,7 @@ int main()
     test_commit_semantics_delete_history_and_current_share_commit_version();
     test_commit_semantics_conflict_does_not_make_write_visible();
     test_json_values_round_trip_and_hash_stably();
+    test_json_null_and_array_helpers();
     test_non_transactional_get_missing_returns_nullopt();
     test_transactional_put_then_non_transactional_get();
     test_require_missing_throws();

@@ -80,9 +80,24 @@ class Json
     {
     }
 
+    static Json null()
+    {
+        return Json(nullptr);
+    }
+
+    static Json array(Array values)
+    {
+        return Json(std::move(values));
+    }
+
     static Json array(std::initializer_list<Json> values)
     {
         return Json(Array(values));
+    }
+
+    static Json object(Object values)
+    {
+        return Json(std::move(values));
     }
 
     static Json object(std::initializer_list<Member> values)
