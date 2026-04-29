@@ -46,6 +46,29 @@ class SchemaValidationTests(unittest.TestCase):
         self.assertEqual(validated["fields"][0]["type"], mt_codegen.ScalarType("string"))
         self.assertEqual(validated["fields"][2]["type"], mt_codegen.ScalarType("bool"))
 
+    def test_optional_scalar_field_parses_type_descriptor(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["fields"].append({"name": "nickname", "type": "optional", "value_type": "string"})
+
+        validated = mt_codegen.validate_schema(schema)
+
+        self.assertEqual(
+            validated["fields"][3]["type"],
+            mt_codegen.OptionalType(mt_codegen.ScalarType("string")),
+        )
+
+    def test_optional_field_requires_value_type(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["fields"].append({"name": "nickname", "type": "optional"})
+
+        self.assert_schema_error(schema, "fields[3].value_type must be a non-empty string")
+
+    def test_optional_field_rejects_unsupported_value_type(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["fields"].append({"name": "metadata", "type": "optional", "value_type": "object"})
+
+        self.assert_schema_error(schema, "unsupported type for fields[3].value_type: 'object'")
+
     def test_missing_required_top_level_field(self):
         schema = copy.deepcopy(VALID_SCHEMA)
         del schema["class_name"]
@@ -68,7 +91,7 @@ class SchemaValidationTests(unittest.TestCase):
         schema = copy.deepcopy(VALID_SCHEMA)
         schema["fields"][1]["type"] = "object"
 
-        self.assert_schema_error(schema, "unsupported type for field 'email': 'object'")
+        self.assert_schema_error(schema, "unsupported type for fields[1]: 'object'")
 
     def test_key_must_reference_declared_field(self):
         schema = copy.deepcopy(VALID_SCHEMA)

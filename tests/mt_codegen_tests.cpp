@@ -5,9 +5,11 @@
 #include <cassert>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
 
 #define EXPECT_TRUE(expr) assert((expr))
+#define EXPECT_FALSE(expr) assert(!(expr))
 #define EXPECT_EQ(a, b) assert((a) == (b))
 
 void test_generated_user_mapping_round_trips()
@@ -16,6 +18,7 @@ void test_generated_user_mapping_round_trips()
         .id = "user:1",
         .email = "alice@example.com",
         .name = "Alice",
+        .nickname = std::string("ally"),
         .active = false,
         .login_count = 7
     };
@@ -23,6 +26,22 @@ void test_generated_user_mapping_round_trips()
     auto json = mt_examples::UserMapping::to_json(user);
     auto decoded = mt_examples::UserMapping::from_json(json);
 
+    EXPECT_EQ(decoded, user);
+    EXPECT_TRUE(decoded.nickname.has_value());
+    EXPECT_EQ(*decoded.nickname, std::string("ally"));
+}
+
+void test_generated_user_mapping_round_trips_null_optional()
+{
+    mt_examples::User user{
+        .id = "user:2", .email = "bob@example.com", .name = "Bob", .active = true, .login_count = 1
+    };
+
+    auto json = mt_examples::UserMapping::to_json(user);
+    EXPECT_TRUE(json["nickname"].is_null());
+
+    auto decoded = mt_examples::UserMapping::from_json(json);
+    EXPECT_FALSE(decoded.nickname.has_value());
     EXPECT_EQ(decoded, user);
 }
 
@@ -43,6 +62,7 @@ void test_generated_user_table_works_with_memory_backend()
                         .id = "user:1",
                         .email = "alice@example.com",
                         .name = "Alice",
+                        .nickname = std::string("ally"),
                         .active = true,
                         .login_count = 3
                     }
@@ -52,6 +72,8 @@ void test_generated_user_table_works_with_memory_backend()
 
     auto loaded = users.require("user:1");
     EXPECT_EQ(loaded.email, std::string("alice@example.com"));
+    EXPECT_TRUE(loaded.nickname.has_value());
+    EXPECT_EQ(*loaded.nickname, std::string("ally"));
     EXPECT_EQ(loaded.login_count, std::int64_t{3});
 
     auto indexes = mt_examples::UserMapping::indexes();
@@ -62,6 +84,7 @@ void test_generated_user_table_works_with_memory_backend()
 int main()
 {
     test_generated_user_mapping_round_trips();
+    test_generated_user_mapping_round_trips_null_optional();
     test_generated_user_table_works_with_memory_backend();
 
     std::cout << "All mt_codegen tests passed.\n";

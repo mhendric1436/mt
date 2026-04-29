@@ -21,6 +21,11 @@ class ScalarType:
     name: str
 
 
+@dataclass(frozen=True)
+class OptionalType:
+    inner: ScalarType
+
+
 def fail(message):
     raise SchemaError(message)
 
@@ -78,10 +83,19 @@ def validate_index_path(path, field_names, context):
         fail(f"{context} references unknown field {field_name!r}")
 
 
-def parse_type(type_name, context):
+def parse_scalar_type(type_name, context):
     if type_name not in SUPPORTED_TYPES:
         fail(f"unsupported type for {context}: {type_name!r}")
     return ScalarType(type_name)
+
+
+def parse_field_type(field, context):
+    type_name = require_named_string(field, "type", f"{context}.type")
+    if type_name == "optional":
+        value_type = require_named_string(field, "value_type", f"{context}.value_type")
+        return OptionalType(parse_scalar_type(value_type, f"{context}.value_type"))
+
+    return parse_scalar_type(type_name, context)
 
 
 def cpp_string(value):
@@ -130,6 +144,8 @@ def cpp_type(type_desc):
             return "std::int64_t"
         if type_desc.name == "double":
             return "double"
+    if isinstance(type_desc, OptionalType):
+        return f"std::optional<{cpp_type(type_desc.inner)}>"
     fail(f"unsupported field type descriptor: {type_desc!r}")
 
 
@@ -144,6 +160,27 @@ def json_accessor(type_desc):
         if type_desc.name == "double":
             return "as_double()"
     fail(f"unsupported field type descriptor: {type_desc!r}")
+
+
+def cpp_to_json_expr(type_desc, value_expr):
+    if isinstance(type_desc, ScalarType):
+        return value_expr
+    if isinstance(type_desc, OptionalType):
+        return f"{value_expr} ? mt::Json(*{value_expr}) : mt::Json::null()"
+    fail(f"unsupported field type descriptor: {type_desc!r}")
+
+
+def json_to_cpp_expr(type_desc, json_expr):
+    if isinstance(type_desc, ScalarType):
+        return f"{json_expr}.{json_accessor(type_desc)}"
+    if isinstance(type_desc, OptionalType):
+        inner_expr = json_to_cpp_expr(type_desc.inner, json_expr)
+        return f"{json_expr}.is_null() ? std::nullopt : std::optional<{cpp_type(type_desc.inner)}>({inner_expr})"
+    fail(f"unsupported field type descriptor: {type_desc!r}")
+
+
+def needs_optional(schema):
+    return any(isinstance(field["type"], OptionalType) for field in schema["fields"])
 
 
 def validate_schema(schema):
@@ -178,8 +215,7 @@ def validate_schema(schema):
             fail(f"duplicate field name {name!r}")
         seen.add(name)
 
-        field_type = require_named_string(field, "type", "field.type")
-        type_desc = parse_type(field_type, f"field {name!r}")
+        type_desc = parse_field_type(field, f"fields[{index}]")
 
         if "required" in field and not isinstance(field["required"], bool):
             fail(f"required for field {name!r} must be a bool")
@@ -249,6 +285,8 @@ def render(schema):
             "",
         ]
     )
+    if needs_optional(schema):
+        lines.insert(5, "#include <optional>")
 
     if schema["namespace"]:
         lines.append(f"namespace {schema['namespace']}")
@@ -280,7 +318,8 @@ def render(schema):
     lines.append("            {")
     for index, field in enumerate(schema["fields"]):
         comma = "," if index + 1 < len(schema["fields"]) else ""
-        lines.append(f"                {{{cpp_string(field['name'])}, row.{field['name']}}}{comma}")
+        value_expr = cpp_to_json_expr(field["type"], f"row.{field['name']}")
+        lines.append(f"                {{{cpp_string(field['name'])}, {value_expr}}}{comma}")
     lines.append("            }")
     lines.append("        );")
     lines.append("    }")
@@ -290,9 +329,8 @@ def render(schema):
     lines.append(f"        return {class_name}{{")
     for index, field in enumerate(schema["fields"]):
         comma = "," if index + 1 < len(schema["fields"]) else ""
-        lines.append(
-            f"            .{field['name']} = json[{cpp_string(field['name'])}].{json_accessor(field['type'])}{comma}"
-        )
+        json_expr = f"json[{cpp_string(field['name'])}]"
+        lines.append(f"            .{field['name']} = {json_to_cpp_expr(field['type'], json_expr)}{comma}")
     lines.append("        };")
     lines.append("    }")
 

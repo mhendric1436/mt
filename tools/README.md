@@ -44,7 +44,12 @@ Optional fields:
 Each field object requires:
 
 - `name`: C++ field name.
-- `type`: one of `string`, `bool`, `int64`, or `double`.
+- `type`: one of `string`, `bool`, `int64`, `double`, or `optional`.
+
+Optional fields require:
+
+- `value_type`: scalar value type for `optional`, one of `string`, `bool`, `int64`, or
+  `double`.
 
 Optional field properties:
 
@@ -67,6 +72,9 @@ Generated C++ type mapping:
 | `bool` | `bool` |
 | `int64` | `std::int64_t` |
 | `double` | `double` |
+| `optional` | `std::optional<T>` |
+
+Optional fields are encoded as their scalar value when set and as JSON null when empty.
 
 ## Index Definitions
 
@@ -98,6 +106,7 @@ Example:
     {"name": "id", "type": "string", "required": true},
     {"name": "email", "type": "string", "required": true},
     {"name": "name", "type": "string", "required": true},
+    {"name": "nickname", "type": "optional", "value_type": "string"},
     {"name": "active", "type": "bool", "default": true},
     {"name": "login_count", "type": "int64", "default": 0}
   ],
@@ -124,6 +133,8 @@ The generator fails if:
 - field names are duplicated
 - the `key` field does not exist
 - a field type is unsupported
+- an optional field is missing `value_type`
+- an optional `value_type` is unsupported
 - a default value does not match the field type
 - `schema_version` is not a positive integer
 - index names are duplicated
@@ -138,12 +149,10 @@ mt_codegen: schema error: missing required field: class_name
 
 ## Current Limitations
 
-- no `std::optional<T>` generation
 - no arrays or nested object fields
 - no enum support
 - no custom includes or custom C++ type overrides
 - `required` is metadata only; missing fields currently fail through `mt::Json` accessors
 
-The core `mt::Json` type supports null and array values. Code generation for
-`std::optional<T>`, arrays, and nested generated objects is planned but not implemented
-yet.
+The core `mt::Json` type supports null and array values. Code generation for arrays and
+nested generated objects is planned but not implemented yet.
