@@ -108,7 +108,7 @@ end note
 
 note right of MemoryBackend
 Memory backend:
-- test/local development
+- process-local, non-durable use
 - key-prefix + JSON equality queries
 - unique index checks
 - rejects unsupported query and migration features

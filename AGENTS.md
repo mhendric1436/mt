@@ -9,7 +9,7 @@ This repository is a small C++20 micro-transaction core library.
 - `include/mt/backend.hpp`, `include/mt/metadata_cache.hpp`, and `include/mt/database.hpp` contain backend and database shell interfaces.
 - `include/mt/transaction.hpp` contains transaction state, validation, retry policy, and `TransactionProvider`.
 - `include/mt/table.hpp` contains the mapping concept, `TableProvider`, and typed `Table` facade.
-- `include/mt/backends/memory.hpp` contains the in-memory backend used for tests and local development.
+- `include/mt/backends/memory.hpp` contains the process-local, non-durable in-memory backend used for tests, local development, and application-owned ephemeral use cases.
 - `tools/mt_codegen.py` generates row and mapping headers from user-owned JSON metadata.
 - `examples/schemas/user.mt.json` is an example schema used for documentation and tests.
 - `tests/mt_core_tests.cpp` contains the current test suite.
@@ -69,7 +69,7 @@ Repo-specific guidance:
 - Transactional point reads support read-your-own-writes.
 - Transactional `list` and `query` overlay pending transaction writes for read-your-writes semantics.
 - The memory backend supports key-prefix and JSON equality predicates, applies filtering before pagination, enforces unique indexes, and rejects unsupported query/migration features explicitly.
-- The memory backend is intended for tests and local development, not as a production storage engine.
+- The memory backend is process-local and non-durable; it may be appropriate for application-owned caches, ephemeral projections, or single-process embedded workflows where that lifecycle is acceptable.
 
 ## Suggested Fix Priority
 

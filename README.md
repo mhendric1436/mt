@@ -7,7 +7,8 @@ snapshot-style reads, optimistic conflict detection, predicate read validation, 
 backend interface for plugging in storage engines.
 
 The core is backend-agnostic: it contains no SQL and no database-specific types. The
-repository includes an in-memory backend for tests and local development.
+repository includes an in-memory backend for tests, local development, and intentional
+process-local use cases.
 
 ## Status
 
@@ -24,11 +25,12 @@ Implemented:
 - predicate read conflict detection
 - read-your-writes for point reads, `list`, key-prefix `query`, and JSON equality `query`
 - small built-in JSON value type with stable canonical hashing
-- in-memory backend for tests and local development
+- in-memory backend for tests, local development, and process-local use cases
 
 Known limitations:
 
-- the memory backend is not a production storage engine
+- the memory backend is process-local and non-durable; use it only where that lifecycle
+  is acceptable
 - memory backend query filtering supports key-prefix and JSON equality predicates only
 - JSON contains predicates and non-key ordering are explicitly rejected by the memory backend
 - migrations are modeled but explicitly rejected by the memory backend
@@ -82,7 +84,8 @@ For the full public API, include:
 #include "mt/core.hpp"
 ```
 
-For local development or tests, include the memory backend separately:
+For local development, tests, or intentional process-local use cases, include the memory
+backend separately:
 
 ```cpp
 #include "mt/backends/memory.hpp"
@@ -295,6 +298,10 @@ The memory backend is header-only and available as:
 ```cpp
 #include "mt/backends/memory.hpp"
 ```
+
+It can be useful for application-owned caches, ephemeral projections, or single-process
+embedded workflows. It is not a durable shared backend for restart-safe persistence or
+cross-process consistency.
 
 SQLite and PostgreSQL currently have dependency-free skeleton headers. Future concrete
 implementations should remain optional so core users do not need those dependencies.

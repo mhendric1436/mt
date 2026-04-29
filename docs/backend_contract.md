@@ -142,5 +142,6 @@ A production backend must provide:
 - truthful capability reporting
 - best-effort, non-throwing abort cleanup
 
-The in-memory backend is useful for tests and local development, but it is not a
-production storage engine.
+The in-memory backend is process-local and non-durable. It is useful for tests, local
+development, caches, ephemeral projections, and single-process embedded workflows where
+that lifecycle is acceptable.
