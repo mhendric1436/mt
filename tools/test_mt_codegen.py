@@ -40,6 +40,12 @@ class SchemaValidationTests(unittest.TestCase):
         self.assertEqual(validated["key"], "id")
         self.assertEqual(len(validated["fields"]), 3)
 
+    def test_valid_schema_parses_field_type_descriptors(self):
+        validated = mt_codegen.validate_schema(copy.deepcopy(VALID_SCHEMA))
+
+        self.assertEqual(validated["fields"][0]["type"], mt_codegen.ScalarType("string"))
+        self.assertEqual(validated["fields"][2]["type"], mt_codegen.ScalarType("bool"))
+
     def test_missing_required_top_level_field(self):
         schema = copy.deepcopy(VALID_SCHEMA)
         del schema["class_name"]

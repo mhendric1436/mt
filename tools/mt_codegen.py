@@ -4,6 +4,7 @@ import argparse
 import json
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -13,6 +14,11 @@ SUPPORTED_TYPES = {"string", "bool", "int64", "double"}
 
 class SchemaError(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class ScalarType:
+    name: str
 
 
 def fail(message):
@@ -72,62 +78,72 @@ def validate_index_path(path, field_names, context):
         fail(f"{context} references unknown field {field_name!r}")
 
 
+def parse_type(type_name, context):
+    if type_name not in SUPPORTED_TYPES:
+        fail(f"unsupported type for {context}: {type_name!r}")
+    return ScalarType(type_name)
+
+
 def cpp_string(value):
     return json.dumps(value)
 
 
+def cpp_default_value(type_desc, value, context):
+    if isinstance(type_desc, ScalarType):
+        if type_desc.name == "string":
+            if not isinstance(value, str):
+                fail(f"default for field {context!r} must be a string")
+            return f" = {cpp_string(value)}"
+
+        if type_desc.name == "bool":
+            if not isinstance(value, bool):
+                fail(f"default for field {context!r} must be a bool")
+            return " = true" if value else " = false"
+
+        if type_desc.name == "int64":
+            if not isinstance(value, int) or isinstance(value, bool):
+                fail(f"default for field {context!r} must be an integer")
+            return f" = {value}"
+
+        if type_desc.name == "double":
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                fail(f"default for field {context!r} must be numeric")
+            return f" = {value}"
+
+    fail(f"unsupported field type descriptor for {context!r}")
+
+
 def cpp_default(field):
-    if field.get("has_default") is False or "default" not in field:
+    if not field.get("has_default", False):
         return ""
 
-    value = field["default"]
-    field_type = field["type"]
-
-    if field_type == "string":
-        if not isinstance(value, str):
-            fail(f"default for field {field['name']!r} must be a string")
-        return f" = {cpp_string(value)}"
-
-    if field_type == "bool":
-        if not isinstance(value, bool):
-            fail(f"default for field {field['name']!r} must be a bool")
-        return " = true" if value else " = false"
-
-    if field_type == "int64":
-        if not isinstance(value, int) or isinstance(value, bool):
-            fail(f"default for field {field['name']!r} must be an integer")
-        return f" = {value}"
-
-    if field_type == "double":
-        if not isinstance(value, (int, float)) or isinstance(value, bool):
-            fail(f"default for field {field['name']!r} must be numeric")
-        return f" = {value}"
-
-    fail(f"unsupported field type {field_type!r}")
+    return cpp_default_value(field["type"], field["default"], field["name"])
 
 
-def cpp_type(field_type):
-    if field_type == "string":
-        return "std::string"
-    if field_type == "bool":
-        return "bool"
-    if field_type == "int64":
-        return "std::int64_t"
-    if field_type == "double":
-        return "double"
-    fail(f"unsupported field type {field_type!r}")
+def cpp_type(type_desc):
+    if isinstance(type_desc, ScalarType):
+        if type_desc.name == "string":
+            return "std::string"
+        if type_desc.name == "bool":
+            return "bool"
+        if type_desc.name == "int64":
+            return "std::int64_t"
+        if type_desc.name == "double":
+            return "double"
+    fail(f"unsupported field type descriptor: {type_desc!r}")
 
 
-def json_accessor(field_type):
-    if field_type == "string":
-        return "as_string()"
-    if field_type == "bool":
-        return "as_bool()"
-    if field_type == "int64":
-        return "as_int64()"
-    if field_type == "double":
-        return "as_double()"
-    fail(f"unsupported field type {field_type!r}")
+def json_accessor(type_desc):
+    if isinstance(type_desc, ScalarType):
+        if type_desc.name == "string":
+            return "as_string()"
+        if type_desc.name == "bool":
+            return "as_bool()"
+        if type_desc.name == "int64":
+            return "as_int64()"
+        if type_desc.name == "double":
+            return "as_double()"
+    fail(f"unsupported field type descriptor: {type_desc!r}")
 
 
 def validate_schema(schema):
@@ -163,17 +179,17 @@ def validate_schema(schema):
         seen.add(name)
 
         field_type = require_named_string(field, "type", "field.type")
-        if field_type not in SUPPORTED_TYPES:
-            fail(f"unsupported type for field {name!r}: {field_type!r}")
+        type_desc = parse_type(field_type, f"field {name!r}")
 
         if "required" in field and not isinstance(field["required"], bool):
             fail(f"required for field {name!r} must be a bool")
-        cpp_default(field)
+        if "default" in field:
+            cpp_default_value(type_desc, field["default"], name)
 
         validated_fields.append(
             {
                 "name": name,
-                "type": field_type,
+                "type": type_desc,
                 "required": field.get("required", "default" not in field),
                 "default": field.get("default"),
                 "has_default": "default" in field,
