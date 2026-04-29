@@ -56,6 +56,9 @@ Object fields require:
 - `class_name`: generated nested C++ struct name.
 - `fields`: non-empty array of nested field definitions.
 
+Nested object fields may contain scalar, `optional`, `array`, and other `object` fields.
+`optional` and `array` currently accept scalar `value_type` values only.
+
 Optional field properties:
 
 - `required`: boolean marker for schema documentation. Defaults to `true` unless
@@ -123,7 +126,9 @@ Example:
       "class_name": "Address",
       "fields": [
         {"name": "city", "type": "string"},
-        {"name": "postal_code", "type": "string"}
+        {"name": "postal_code", "type": "string"},
+        {"name": "unit", "type": "optional", "value_type": "string"},
+        {"name": "labels", "type": "array", "value_type": "string"}
       ]
     },
     {"name": "active", "type": "bool", "default": true},
@@ -174,6 +179,8 @@ mt_codegen: schema error: missing required field: class_name
 
 - no enum support
 - no custom includes or custom C++ type overrides
+- `optional` and `array` value types are limited to scalar generated types
+- index paths are limited to top-level generated fields
 - `required` is metadata only; missing fields currently fail through `mt::Json` accessors
 
 The core `mt::Json` type supports null and array values.

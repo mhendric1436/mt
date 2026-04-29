@@ -111,6 +111,57 @@ class SchemaValidationTests(unittest.TestCase):
         self.assertEqual(validated["fields"][3]["type"].class_name, "Address")
         self.assertEqual(len(validated["fields"][3]["type"].fields), 2)
 
+    def test_object_field_supports_nested_optional_and_array_fields(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["fields"].append(
+            {
+                "name": "address",
+                "type": "object",
+                "class_name": "Address",
+                "fields": [
+                    {"name": "city", "type": "string"},
+                    {"name": "unit", "type": "optional", "value_type": "string"},
+                    {"name": "labels", "type": "array", "value_type": "string"},
+                ],
+            }
+        )
+
+        validated = mt_codegen.validate_schema(schema)
+        address = validated["fields"][3]["type"]
+
+        self.assertEqual(
+            address.fields[1]["type"],
+            mt_codegen.OptionalType(mt_codegen.ScalarType("string")),
+        )
+        self.assertEqual(
+            address.fields[2]["type"],
+            mt_codegen.ArrayType(mt_codegen.ScalarType("string")),
+        )
+
+    def test_object_field_allows_duplicate_class_name_with_same_fields(self):
+        address_fields = [{"name": "city", "type": "string"}]
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["fields"].extend(
+            [
+                {
+                    "name": "billing",
+                    "type": "object",
+                    "class_name": "Address",
+                    "fields": copy.deepcopy(address_fields),
+                },
+                {
+                    "name": "shipping",
+                    "type": "object",
+                    "class_name": "Address",
+                    "fields": copy.deepcopy(address_fields),
+                },
+            ]
+        )
+
+        validated = mt_codegen.validate_schema(schema)
+
+        self.assertEqual(validated["fields"][3]["type"], validated["fields"][4]["type"])
+
     def test_object_field_requires_class_name(self):
         schema = copy.deepcopy(VALID_SCHEMA)
         schema["fields"].append(

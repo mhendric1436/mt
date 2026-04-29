@@ -21,7 +21,13 @@ void test_generated_user_mapping_round_trips()
         .name = "Alice",
         .nickname = std::string("ally"),
         .tags = {"admin", "tester"},
-        .address = mt_examples::Address{.city = "Denver", .postal_code = "80202"},
+        .address =
+            mt_examples::Address{
+                .city = "Denver",
+                .postal_code = "80202",
+                .unit = std::string("5A"),
+                .labels = {"home", "primary"}
+            },
         .active = false,
         .login_count = 7
     };
@@ -37,6 +43,11 @@ void test_generated_user_mapping_round_trips()
     EXPECT_EQ(decoded.tags[1], std::string("tester"));
     EXPECT_EQ(decoded.address.city, std::string("Denver"));
     EXPECT_EQ(decoded.address.postal_code, std::string("80202"));
+    EXPECT_TRUE(decoded.address.unit.has_value());
+    EXPECT_EQ(*decoded.address.unit, std::string("5A"));
+    EXPECT_EQ(decoded.address.labels.size(), std::size_t{2});
+    EXPECT_EQ(decoded.address.labels[0], std::string("home"));
+    EXPECT_EQ(decoded.address.labels[1], std::string("primary"));
 }
 
 void test_generated_user_mapping_round_trips_null_optional()
@@ -46,7 +57,7 @@ void test_generated_user_mapping_round_trips_null_optional()
         .email = "bob@example.com",
         .name = "Bob",
         .tags = {},
-        .address = mt_examples::Address{.city = "Boulder", .postal_code = "80301"},
+        .address = mt_examples::Address{.city = "Boulder", .postal_code = "80301", .labels = {}},
         .active = true,
         .login_count = 1
     };
@@ -58,6 +69,8 @@ void test_generated_user_mapping_round_trips_null_optional()
 
     auto decoded = mt_examples::UserMapping::from_json(json);
     EXPECT_FALSE(decoded.nickname.has_value());
+    EXPECT_FALSE(decoded.address.unit.has_value());
+    EXPECT_TRUE(decoded.address.labels.empty());
     EXPECT_EQ(decoded, user);
 }
 
@@ -80,7 +93,13 @@ void test_generated_user_table_works_with_memory_backend()
                         .name = "Alice",
                         .nickname = std::string("ally"),
                         .tags = {"admin", "tester"},
-                        .address = mt_examples::Address{.city = "Denver", .postal_code = "80202"},
+                        .address =
+                            mt_examples::Address{
+                                .city = "Denver",
+                                .postal_code = "80202",
+                                .unit = std::string("5A"),
+                                .labels = {"home", "primary"}
+                            },
                         .active = true,
                         .login_count = 3
                     }
@@ -97,6 +116,11 @@ void test_generated_user_table_works_with_memory_backend()
     EXPECT_EQ(loaded.tags[1], std::string("tester"));
     EXPECT_EQ(loaded.address.city, std::string("Denver"));
     EXPECT_EQ(loaded.address.postal_code, std::string("80202"));
+    EXPECT_TRUE(loaded.address.unit.has_value());
+    EXPECT_EQ(*loaded.address.unit, std::string("5A"));
+    EXPECT_EQ(loaded.address.labels.size(), std::size_t{2});
+    EXPECT_EQ(loaded.address.labels[0], std::string("home"));
+    EXPECT_EQ(loaded.address.labels[1], std::string("primary"));
     EXPECT_EQ(loaded.login_count, std::int64_t{3});
 
     auto indexes = mt_examples::UserMapping::indexes();

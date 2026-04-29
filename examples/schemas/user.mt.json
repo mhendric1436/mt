@@ -16,7 +16,9 @@
       "class_name": "Address",
       "fields": [
         {"name": "city", "type": "string"},
-        {"name": "postal_code", "type": "string"}
+        {"name": "postal_code", "type": "string"},
+        {"name": "unit", "type": "optional", "value_type": "string"},
+        {"name": "labels", "type": "array", "value_type": "string"}
       ]
     },
     {"name": "active", "type": "bool", "default": true},
