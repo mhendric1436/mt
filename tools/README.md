@@ -18,6 +18,15 @@ The generated header includes:
 #include "mt/core.hpp"
 ```
 
+Generated mapping types expose schema metadata for backend schema tracking:
+
+- `table_name`: logical mt table name
+- `schema_version`: declared schema version
+- `key_field`: document key field name
+- `fields()`: field definitions, including nested object fields, default values, optional
+  scalar fields, and array scalar fields
+- `indexes()`: declared indexes when the schema defines them
+
 Compile generated code with the library include path:
 
 ```sh
@@ -62,7 +71,8 @@ Nested object fields may contain scalar, `optional`, `array`, and other `object`
 Optional field properties:
 
 - `required`: boolean marker for schema documentation. Defaults to `true` unless
-  `default` is present. The current generator does not emit optional fields.
+  `default` is present. Generated mapping metadata exposes this marker, but row
+  decoding still relies on `mt::Json` accessors for missing-field failures.
 - `default`: default value for the generated C++ field.
 
 Default value types must match the field type:

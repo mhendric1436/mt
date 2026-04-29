@@ -46,6 +46,29 @@ class SchemaValidationTests(unittest.TestCase):
         self.assertEqual(validated["fields"][0]["type"], mt_codegen.ScalarType("string"))
         self.assertEqual(validated["fields"][2]["type"], mt_codegen.ScalarType("bool"))
 
+    def test_render_emits_schema_metadata(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["fields"].append({"name": "tags", "type": "array", "value_type": "string"})
+        schema["fields"].append(
+            {
+                "name": "address",
+                "type": "object",
+                "class_name": "Address",
+                "fields": [{"name": "city", "type": "string"}],
+            }
+        )
+        validated = mt_codegen.validate_schema(schema)
+
+        rendered = mt_codegen.render(validated)
+
+        self.assertIn('static constexpr std::string_view key_field = "id";', rendered)
+        self.assertIn("static std::vector<mt::FieldSpec> fields()", rendered)
+        self.assertIn('mt::FieldSpec::string("id").mark_required(true)', rendered)
+        self.assertIn('mt::FieldSpec::array("tags", mt::FieldType::String)', rendered)
+        self.assertIn('mt::FieldSpec::object("address"', rendered)
+        self.assertIn('mt::FieldSpec::boolean("active")', rendered)
+        self.assertIn(".with_default(mt::Json(true))", rendered)
+
     def test_optional_scalar_field_parses_type_descriptor(self):
         schema = copy.deepcopy(VALID_SCHEMA)
         schema["fields"].append({"name": "nickname", "type": "optional", "value_type": "string"})

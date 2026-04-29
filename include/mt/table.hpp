@@ -121,6 +121,30 @@ template <class Mapping> std::vector<Migration> mapping_migrations_or_empty()
     }
 }
 
+template <class Mapping> std::string mapping_key_field_or_empty()
+{
+    if constexpr (requires { Mapping::key_field; })
+    {
+        return std::string(Mapping::key_field);
+    }
+    else
+    {
+        return {};
+    }
+}
+
+template <class Mapping> std::vector<FieldSpec> mapping_fields_or_empty()
+{
+    if constexpr (requires { Mapping::fields(); })
+    {
+        return Mapping::fields();
+    }
+    else
+    {
+        return {};
+    }
+}
+
 template <class Mapping> int mapping_schema_version_or_default()
 {
     if constexpr (requires { Mapping::schema_version; })
@@ -366,6 +390,8 @@ TableProvider::table()
         .logical_name = table_name,
         .indexes = mapping_indexes_or_empty<Mapping>(),
         .schema_version = mapping_schema_version_or_default<Mapping>(),
+        .key_field = mapping_key_field_or_empty<Mapping>(),
+        .fields = mapping_fields_or_empty<Mapping>(),
         .migrations = mapping_migrations_or_empty<Mapping>()
     };
 

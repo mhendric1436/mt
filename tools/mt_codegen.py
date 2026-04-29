@@ -153,6 +153,75 @@ def cpp_default(field):
     return cpp_default_value(field["type"], field["default"], field["name"])
 
 
+def cpp_field_type(type_desc):
+    if isinstance(type_desc, ScalarType):
+        if type_desc.name == "string":
+            return "mt::FieldType::String"
+        if type_desc.name == "bool":
+            return "mt::FieldType::Bool"
+        if type_desc.name == "int64":
+            return "mt::FieldType::Int64"
+        if type_desc.name == "double":
+            return "mt::FieldType::Double"
+    fail(f"unsupported field type descriptor: {type_desc!r}")
+
+
+def cpp_json_value(type_desc, value, context):
+    if isinstance(type_desc, ScalarType):
+        if type_desc.name == "string":
+            if not isinstance(value, str):
+                fail(f"default for field {context!r} must be a string")
+            return f"mt::Json({cpp_string(value)})"
+
+        if type_desc.name == "bool":
+            if not isinstance(value, bool):
+                fail(f"default for field {context!r} must be a bool")
+            return "mt::Json(true)" if value else "mt::Json(false)"
+
+        if type_desc.name == "int64":
+            if not isinstance(value, int) or isinstance(value, bool):
+                fail(f"default for field {context!r} must be an integer")
+            return f"mt::Json(std::int64_t{{{value}}})"
+
+        if type_desc.name == "double":
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                fail(f"default for field {context!r} must be numeric")
+            return f"mt::Json({value})"
+
+    fail(f"unsupported field type descriptor for {context!r}")
+
+
+def cpp_field_spec(field):
+    type_desc = field["type"]
+    name = cpp_string(field["name"])
+
+    if isinstance(type_desc, ScalarType):
+        if type_desc.name == "string":
+            expr = f"mt::FieldSpec::string({name})"
+        elif type_desc.name == "bool":
+            expr = f"mt::FieldSpec::boolean({name})"
+        elif type_desc.name == "int64":
+            expr = f"mt::FieldSpec::int64({name})"
+        elif type_desc.name == "double":
+            expr = f"mt::FieldSpec::double_value({name})"
+        else:
+            fail(f"unsupported field type descriptor: {type_desc!r}")
+    elif isinstance(type_desc, OptionalType):
+        expr = f"mt::FieldSpec::optional({name}, {cpp_field_type(type_desc.inner)})"
+    elif isinstance(type_desc, ArrayType):
+        expr = f"mt::FieldSpec::array({name}, {cpp_field_type(type_desc.inner)})"
+    elif isinstance(type_desc, ObjectType):
+        nested = ", ".join(cpp_field_spec(nested_field) for nested_field in type_desc.fields)
+        expr = f"mt::FieldSpec::object({name}, {{{nested}}})"
+    else:
+        fail(f"unsupported field type descriptor: {type_desc!r}")
+
+    expr += f".mark_required({'true' if field['required'] else 'false'})"
+    if field.get("has_default", False):
+        expr += f".with_default({cpp_json_value(type_desc, field['default'], field['name'])})"
+    return expr
+
+
 def cpp_type(type_desc):
     if isinstance(type_desc, ScalarType):
         if type_desc.name == "string":
@@ -436,10 +505,20 @@ def render(schema):
     lines.append("{")
     lines.append(f"    static constexpr std::string_view table_name = {cpp_string(schema['table_name'])};")
     lines.append(f"    static constexpr int schema_version = {schema['schema_version']};")
+    lines.append(f"    static constexpr std::string_view key_field = {cpp_string(schema['key'])};")
     lines.append("")
     lines.append(f"    static std::string key(const {class_name}& row)")
     lines.append("    {")
     lines.append(f"        return row.{schema['key']};")
+    lines.append("    }")
+    lines.append("")
+    lines.append("    static std::vector<mt::FieldSpec> fields()")
+    lines.append("    {")
+    lines.append("        return {")
+    for index, field in enumerate(schema["fields"]):
+        comma = "," if index + 1 < len(schema["fields"]) else ""
+        lines.append(f"            {cpp_field_spec(field)}{comma}")
+    lines.append("        };")
     lines.append("    }")
     lines.append("")
     lines.append(f"    static mt::Json to_json(const {class_name}& row)")

@@ -74,6 +74,47 @@ void test_generated_user_mapping_round_trips_null_optional()
     EXPECT_EQ(decoded, user);
 }
 
+void test_generated_user_mapping_exposes_schema_metadata()
+{
+    EXPECT_EQ(std::string(mt_examples::UserMapping::key_field), std::string("id"));
+
+    auto fields = mt_examples::UserMapping::fields();
+    EXPECT_EQ(fields.size(), std::size_t{8});
+
+    EXPECT_EQ(fields[0].name, std::string("id"));
+    EXPECT_EQ(fields[0].type, mt::FieldType::String);
+    EXPECT_TRUE(fields[0].required);
+
+    EXPECT_EQ(fields[3].name, std::string("nickname"));
+    EXPECT_EQ(fields[3].type, mt::FieldType::Optional);
+    EXPECT_EQ(fields[3].value_type, mt::FieldType::String);
+    EXPECT_TRUE(fields[3].required);
+
+    EXPECT_EQ(fields[4].name, std::string("tags"));
+    EXPECT_EQ(fields[4].type, mt::FieldType::Array);
+    EXPECT_EQ(fields[4].value_type, mt::FieldType::String);
+
+    EXPECT_EQ(fields[5].name, std::string("address"));
+    EXPECT_EQ(fields[5].type, mt::FieldType::Object);
+    EXPECT_EQ(fields[5].fields.size(), std::size_t{4});
+    EXPECT_EQ(fields[5].fields[2].name, std::string("unit"));
+    EXPECT_EQ(fields[5].fields[2].type, mt::FieldType::Optional);
+    EXPECT_EQ(fields[5].fields[3].name, std::string("labels"));
+    EXPECT_EQ(fields[5].fields[3].type, mt::FieldType::Array);
+
+    EXPECT_EQ(fields[6].name, std::string("active"));
+    EXPECT_EQ(fields[6].type, mt::FieldType::Bool);
+    EXPECT_FALSE(fields[6].required);
+    EXPECT_TRUE(fields[6].has_default);
+    EXPECT_EQ(fields[6].default_value, mt::Json(true));
+
+    EXPECT_EQ(fields[7].name, std::string("login_count"));
+    EXPECT_EQ(fields[7].type, mt::FieldType::Int64);
+    EXPECT_FALSE(fields[7].required);
+    EXPECT_TRUE(fields[7].has_default);
+    EXPECT_EQ(fields[7].default_value, mt::Json(std::int64_t{0}));
+}
+
 void test_generated_user_table_works_with_memory_backend()
 {
     auto backend = std::make_shared<mt::backends::memory::MemoryBackend>();
@@ -132,6 +173,7 @@ int main()
 {
     test_generated_user_mapping_round_trips();
     test_generated_user_mapping_round_trips_null_optional();
+    test_generated_user_mapping_exposes_schema_metadata();
     test_generated_user_table_works_with_memory_backend();
 
     std::cout << "All mt_codegen tests passed.\n";
