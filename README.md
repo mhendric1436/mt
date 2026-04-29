@@ -1,3 +1,5 @@
+![mt logo and project overview](images/mt_combined.png)
+
 # mt
 
 `mt` is a small C++20 micro-transaction core library. It provides typed table access,
