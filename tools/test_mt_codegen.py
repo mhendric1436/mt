@@ -69,6 +69,29 @@ class SchemaValidationTests(unittest.TestCase):
 
         self.assert_schema_error(schema, "unsupported type for fields[3].value_type: 'object'")
 
+    def test_array_scalar_field_parses_type_descriptor(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["fields"].append({"name": "tags", "type": "array", "value_type": "string"})
+
+        validated = mt_codegen.validate_schema(schema)
+
+        self.assertEqual(
+            validated["fields"][3]["type"],
+            mt_codegen.ArrayType(mt_codegen.ScalarType("string")),
+        )
+
+    def test_array_field_requires_value_type(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["fields"].append({"name": "tags", "type": "array"})
+
+        self.assert_schema_error(schema, "fields[3].value_type must be a non-empty string")
+
+    def test_array_field_rejects_unsupported_value_type(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["fields"].append({"name": "items", "type": "array", "value_type": "object"})
+
+        self.assert_schema_error(schema, "unsupported type for fields[3].value_type: 'object'")
+
     def test_missing_required_top_level_field(self):
         schema = copy.deepcopy(VALID_SCHEMA)
         del schema["class_name"]

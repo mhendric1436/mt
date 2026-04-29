@@ -44,11 +44,11 @@ Optional fields:
 Each field object requires:
 
 - `name`: C++ field name.
-- `type`: one of `string`, `bool`, `int64`, `double`, or `optional`.
+- `type`: one of `string`, `bool`, `int64`, `double`, `optional`, or `array`.
 
-Optional fields require:
+Optional and array fields require:
 
-- `value_type`: scalar value type for `optional`, one of `string`, `bool`, `int64`, or
+- `value_type`: scalar value type for `optional` or `array`, one of `string`, `bool`, `int64`, or
   `double`.
 
 Optional field properties:
@@ -73,8 +73,10 @@ Generated C++ type mapping:
 | `int64` | `std::int64_t` |
 | `double` | `double` |
 | `optional` | `std::optional<T>` |
+| `array` | `std::vector<T>` |
 
 Optional fields are encoded as their scalar value when set and as JSON null when empty.
+Array fields are encoded as JSON arrays.
 
 ## Index Definitions
 
@@ -107,6 +109,7 @@ Example:
     {"name": "email", "type": "string", "required": true},
     {"name": "name", "type": "string", "required": true},
     {"name": "nickname", "type": "optional", "value_type": "string"},
+    {"name": "tags", "type": "array", "value_type": "string"},
     {"name": "active", "type": "bool", "default": true},
     {"name": "login_count", "type": "int64", "default": 0}
   ],
@@ -135,6 +138,8 @@ The generator fails if:
 - a field type is unsupported
 - an optional field is missing `value_type`
 - an optional `value_type` is unsupported
+- an array field is missing `value_type`
+- an array `value_type` is unsupported
 - a default value does not match the field type
 - `schema_version` is not a positive integer
 - index names are duplicated
@@ -149,10 +154,10 @@ mt_codegen: schema error: missing required field: class_name
 
 ## Current Limitations
 
-- no arrays or nested object fields
+- no nested object fields
 - no enum support
 - no custom includes or custom C++ type overrides
 - `required` is metadata only; missing fields currently fail through `mt::Json` accessors
 
-The core `mt::Json` type supports null and array values. Code generation for arrays and
-nested generated objects is planned but not implemented yet.
+The core `mt::Json` type supports null and array values. Code generation for nested
+generated objects is planned but not implemented yet.

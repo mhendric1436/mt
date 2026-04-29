@@ -7,6 +7,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 #define EXPECT_TRUE(expr) assert((expr))
 #define EXPECT_FALSE(expr) assert(!(expr))
@@ -19,6 +20,7 @@ void test_generated_user_mapping_round_trips()
         .email = "alice@example.com",
         .name = "Alice",
         .nickname = std::string("ally"),
+        .tags = {"admin", "tester"},
         .active = false,
         .login_count = 7
     };
@@ -29,16 +31,26 @@ void test_generated_user_mapping_round_trips()
     EXPECT_EQ(decoded, user);
     EXPECT_TRUE(decoded.nickname.has_value());
     EXPECT_EQ(*decoded.nickname, std::string("ally"));
+    EXPECT_EQ(decoded.tags.size(), std::size_t{2});
+    EXPECT_EQ(decoded.tags[0], std::string("admin"));
+    EXPECT_EQ(decoded.tags[1], std::string("tester"));
 }
 
 void test_generated_user_mapping_round_trips_null_optional()
 {
     mt_examples::User user{
-        .id = "user:2", .email = "bob@example.com", .name = "Bob", .active = true, .login_count = 1
+        .id = "user:2",
+        .email = "bob@example.com",
+        .name = "Bob",
+        .tags = {},
+        .active = true,
+        .login_count = 1
     };
 
     auto json = mt_examples::UserMapping::to_json(user);
     EXPECT_TRUE(json["nickname"].is_null());
+    EXPECT_TRUE(json["tags"].is_array());
+    EXPECT_TRUE(json["tags"].as_array().empty());
 
     auto decoded = mt_examples::UserMapping::from_json(json);
     EXPECT_FALSE(decoded.nickname.has_value());
@@ -63,6 +75,7 @@ void test_generated_user_table_works_with_memory_backend()
                         .email = "alice@example.com",
                         .name = "Alice",
                         .nickname = std::string("ally"),
+                        .tags = {"admin", "tester"},
                         .active = true,
                         .login_count = 3
                     }
@@ -74,6 +87,9 @@ void test_generated_user_table_works_with_memory_backend()
     EXPECT_EQ(loaded.email, std::string("alice@example.com"));
     EXPECT_TRUE(loaded.nickname.has_value());
     EXPECT_EQ(*loaded.nickname, std::string("ally"));
+    EXPECT_EQ(loaded.tags.size(), std::size_t{2});
+    EXPECT_EQ(loaded.tags[0], std::string("admin"));
+    EXPECT_EQ(loaded.tags[1], std::string("tester"));
     EXPECT_EQ(loaded.login_count, std::int64_t{3});
 
     auto indexes = mt_examples::UserMapping::indexes();
