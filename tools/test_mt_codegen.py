@@ -92,6 +92,64 @@ class SchemaValidationTests(unittest.TestCase):
 
         self.assert_schema_error(schema, "unsupported type for fields[3].value_type: 'object'")
 
+    def test_object_field_parses_type_descriptor(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["fields"].append(
+            {
+                "name": "address",
+                "type": "object",
+                "class_name": "Address",
+                "fields": [
+                    {"name": "city", "type": "string"},
+                    {"name": "postal_code", "type": "string"},
+                ],
+            }
+        )
+
+        validated = mt_codegen.validate_schema(schema)
+
+        self.assertEqual(validated["fields"][3]["type"].class_name, "Address")
+        self.assertEqual(len(validated["fields"][3]["type"].fields), 2)
+
+    def test_object_field_requires_class_name(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["fields"].append(
+            {
+                "name": "address",
+                "type": "object",
+                "fields": [{"name": "city", "type": "string"}],
+            }
+        )
+
+        self.assert_schema_error(schema, "fields[3].class_name must be a non-empty string")
+
+    def test_object_field_requires_fields(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["fields"].append({"name": "address", "type": "object", "class_name": "Address"})
+
+        self.assert_schema_error(schema, "fields[3].fields must be a non-empty array")
+
+    def test_object_field_rejects_duplicate_class_name_with_different_fields(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["fields"].extend(
+            [
+                {
+                    "name": "billing",
+                    "type": "object",
+                    "class_name": "Address",
+                    "fields": [{"name": "city", "type": "string"}],
+                },
+                {
+                    "name": "shipping",
+                    "type": "object",
+                    "class_name": "Address",
+                    "fields": [{"name": "postal_code", "type": "string"}],
+                },
+            ]
+        )
+
+        self.assert_schema_error(schema, "duplicate object class_name with different fields: 'Address'")
+
     def test_missing_required_top_level_field(self):
         schema = copy.deepcopy(VALID_SCHEMA)
         del schema["class_name"]
@@ -112,9 +170,9 @@ class SchemaValidationTests(unittest.TestCase):
 
     def test_unsupported_field_type(self):
         schema = copy.deepcopy(VALID_SCHEMA)
-        schema["fields"][1]["type"] = "object"
+        schema["fields"][1]["type"] = "map"
 
-        self.assert_schema_error(schema, "unsupported type for fields[1]: 'object'")
+        self.assert_schema_error(schema, "unsupported type for fields[1]: 'map'")
 
     def test_key_must_reference_declared_field(self):
         schema = copy.deepcopy(VALID_SCHEMA)

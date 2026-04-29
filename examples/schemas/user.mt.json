@@ -10,6 +10,15 @@
     {"name": "name", "type": "string", "required": true},
     {"name": "nickname", "type": "optional", "value_type": "string"},
     {"name": "tags", "type": "array", "value_type": "string"},
+    {
+      "name": "address",
+      "type": "object",
+      "class_name": "Address",
+      "fields": [
+        {"name": "city", "type": "string"},
+        {"name": "postal_code", "type": "string"}
+      ]
+    },
     {"name": "active", "type": "bool", "default": true},
     {"name": "login_count", "type": "int64", "default": 0}
   ],

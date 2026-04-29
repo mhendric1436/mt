@@ -44,12 +44,17 @@ Optional fields:
 Each field object requires:
 
 - `name`: C++ field name.
-- `type`: one of `string`, `bool`, `int64`, `double`, `optional`, or `array`.
+- `type`: one of `string`, `bool`, `int64`, `double`, `optional`, `array`, or `object`.
 
 Optional and array fields require:
 
 - `value_type`: scalar value type for `optional` or `array`, one of `string`, `bool`, `int64`, or
   `double`.
+
+Object fields require:
+
+- `class_name`: generated nested C++ struct name.
+- `fields`: non-empty array of nested field definitions.
 
 Optional field properties:
 
@@ -74,9 +79,11 @@ Generated C++ type mapping:
 | `double` | `double` |
 | `optional` | `std::optional<T>` |
 | `array` | `std::vector<T>` |
+| `object` | nested generated struct |
 
 Optional fields are encoded as their scalar value when set and as JSON null when empty.
 Array fields are encoded as JSON arrays.
+Object fields are encoded as JSON objects.
 
 ## Index Definitions
 
@@ -110,6 +117,15 @@ Example:
     {"name": "name", "type": "string", "required": true},
     {"name": "nickname", "type": "optional", "value_type": "string"},
     {"name": "tags", "type": "array", "value_type": "string"},
+    {
+      "name": "address",
+      "type": "object",
+      "class_name": "Address",
+      "fields": [
+        {"name": "city", "type": "string"},
+        {"name": "postal_code", "type": "string"}
+      ]
+    },
     {"name": "active", "type": "bool", "default": true},
     {"name": "login_count", "type": "int64", "default": 0}
   ],
@@ -140,6 +156,8 @@ The generator fails if:
 - an optional `value_type` is unsupported
 - an array field is missing `value_type`
 - an array `value_type` is unsupported
+- an object field is missing `class_name` or `fields`
+- duplicate object class names are declared with different fields
 - a default value does not match the field type
 - `schema_version` is not a positive integer
 - index names are duplicated
@@ -154,10 +172,8 @@ mt_codegen: schema error: missing required field: class_name
 
 ## Current Limitations
 
-- no nested object fields
 - no enum support
 - no custom includes or custom C++ type overrides
 - `required` is metadata only; missing fields currently fail through `mt::Json` accessors
 
-The core `mt::Json` type supports null and array values. Code generation for nested
-generated objects is planned but not implemented yet.
+The core `mt::Json` type supports null and array values.

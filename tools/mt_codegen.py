@@ -31,6 +31,12 @@ class ArrayType:
     inner: ScalarType
 
 
+@dataclass(frozen=True)
+class ObjectType:
+    class_name: str
+    fields: tuple
+
+
 def fail(message):
     raise SchemaError(message)
 
@@ -102,6 +108,11 @@ def parse_field_type(field, context):
     if type_name == "array":
         value_type = require_named_string(field, "value_type", f"{context}.value_type")
         return ArrayType(parse_scalar_type(value_type, f"{context}.value_type"))
+    if type_name == "object":
+        class_name = require_named_string(field, "class_name", f"{context}.class_name")
+        validate_identifier(class_name, f"{context}.class_name")
+        fields = parse_fields(field.get("fields"), f"{context}.fields")
+        return ObjectType(class_name, tuple(fields))
 
     return parse_scalar_type(type_name, context)
 
@@ -156,6 +167,8 @@ def cpp_type(type_desc):
         return f"std::optional<{cpp_type(type_desc.inner)}>"
     if isinstance(type_desc, ArrayType):
         return f"std::vector<{cpp_type(type_desc.inner)}>"
+    if isinstance(type_desc, ObjectType):
+        return type_desc.class_name
     fail(f"unsupported field type descriptor: {type_desc!r}")
 
 
@@ -179,6 +192,8 @@ def cpp_to_json_expr(type_desc, value_expr):
         return f"{value_expr} ? mt::Json(*{value_expr}) : mt::Json::null()"
     if isinstance(type_desc, ArrayType):
         return f"to_json_array({value_expr})"
+    if isinstance(type_desc, ObjectType):
+        return f"to_json({value_expr})"
     fail(f"unsupported field type descriptor: {type_desc!r}")
 
 
@@ -190,21 +205,107 @@ def json_to_cpp_expr(type_desc, json_expr):
         return f"{json_expr}.is_null() ? std::nullopt : std::optional<{cpp_type(type_desc.inner)}>({inner_expr})"
     if isinstance(type_desc, ArrayType):
         return f"from_json_array_{type_desc.inner.name}({json_expr})"
+    if isinstance(type_desc, ObjectType):
+        return f"from_json_{type_desc.class_name}({json_expr})"
     fail(f"unsupported field type descriptor: {type_desc!r}")
 
 
+def fields_need_optional(fields):
+    for field in fields:
+        type_desc = field["type"]
+        if isinstance(type_desc, OptionalType):
+            return True
+        if isinstance(type_desc, ObjectType) and fields_need_optional(type_desc.fields):
+            return True
+    return False
+
+
 def needs_optional(schema):
-    return any(isinstance(field["type"], OptionalType) for field in schema["fields"])
+    return fields_need_optional(schema["fields"])
 
 
-def array_inner_types(schema):
+def array_inner_types_in_fields(fields):
     return sorted(
         {
             field["type"].inner.name
-            for field in schema["fields"]
+            for field in fields
             if isinstance(field["type"], ArrayType)
-        }
+        }.union(
+            *[
+                set(array_inner_types_in_fields(field["type"].fields))
+                for field in fields
+                if isinstance(field["type"], ObjectType)
+            ]
+        )
     )
+
+
+def array_inner_types(schema):
+    return array_inner_types_in_fields(schema["fields"])
+
+
+def object_types_in_fields(fields):
+    objects = []
+    for field in fields:
+        type_desc = field["type"]
+        if isinstance(type_desc, ObjectType):
+            objects.extend(object_types_in_fields(type_desc.fields))
+            objects.append(type_desc)
+    return objects
+
+
+def object_types(schema):
+    unique = []
+    seen = set()
+    for type_desc in object_types_in_fields(schema["fields"]):
+        if type_desc.class_name in seen:
+            continue
+        seen.add(type_desc.class_name)
+        unique.append(type_desc)
+    return unique
+
+
+def parse_fields(fields, context):
+    if not isinstance(fields, list) or not fields:
+        fail(f"{context} must be a non-empty array")
+
+    seen = set()
+    parsed = []
+    for index, field in enumerate(fields):
+        field = require_object(field, f"{context}[{index}]")
+        name = require_named_string(field, "name", f"{context}[{index}].name")
+        validate_identifier(name, "field name")
+        if name in seen:
+            fail(f"duplicate field name {name!r}")
+        seen.add(name)
+
+        type_desc = parse_field_type(field, f"{context}[{index}]")
+
+        if "required" in field and not isinstance(field["required"], bool):
+            fail(f"required for field {name!r} must be a bool")
+        if "default" in field:
+            cpp_default_value(type_desc, field["default"], name)
+
+        parsed.append(
+            {
+                "name": name,
+                "type": type_desc,
+                "required": field.get("required", "default" not in field),
+                "default": field.get("default"),
+                "has_default": "default" in field,
+            }
+        )
+
+    return parsed
+
+
+def validate_unique_object_class_names(fields):
+    seen = {}
+    for type_desc in object_types_in_fields(fields):
+        existing = seen.get(type_desc.class_name)
+        if existing is not None and existing != type_desc.fields:
+            fail(f"duplicate object class_name with different fields: {type_desc.class_name!r}")
+        seen[type_desc.class_name] = type_desc.fields
 
 
 def validate_schema(schema):
@@ -225,37 +326,10 @@ def validate_schema(schema):
     if not isinstance(schema_version, int) or isinstance(schema_version, bool) or schema_version < 1:
         fail("schema_version must be a positive integer")
 
-    fields = schema.get("fields")
-    if not isinstance(fields, list) or not fields:
-        fail("fields must be a non-empty array")
+    validated_fields = parse_fields(schema.get("fields"), "fields")
+    validate_unique_object_class_names(validated_fields)
 
-    seen = set()
-    validated_fields = []
-    for index, field in enumerate(fields):
-        field = require_object(field, f"fields[{index}]")
-        name = require_named_string(field, "name", "field.name")
-        validate_identifier(name, "field name")
-        if name in seen:
-            fail(f"duplicate field name {name!r}")
-        seen.add(name)
-
-        type_desc = parse_field_type(field, f"fields[{index}]")
-
-        if "required" in field and not isinstance(field["required"], bool):
-            fail(f"required for field {name!r} must be a bool")
-        if "default" in field:
-            cpp_default_value(type_desc, field["default"], name)
-
-        validated_fields.append(
-            {
-                "name": name,
-                "type": type_desc,
-                "required": field.get("required", "default" not in field),
-                "default": field.get("default"),
-                "has_default": "default" in field,
-            }
-        )
-
+    seen = {field["name"] for field in validated_fields}
     if key not in seen:
         fail(f"key field {key!r} does not exist")
 
@@ -291,6 +365,42 @@ def validate_schema(schema):
     }
 
 
+def append_struct(lines, class_name, fields):
+    lines.append(f"struct {class_name}")
+    lines.append("{")
+    for field in fields:
+        lines.append(f"    {cpp_type(field['type'])} {field['name']}{cpp_default(field)};")
+    lines.append("")
+    lines.append(f"    friend bool operator==(const {class_name}&, const {class_name}&) = default;")
+    lines.append("};")
+    lines.append("")
+
+
+def append_object_json_helpers(lines, object_type):
+    lines.append(f"    static mt::Json to_json(const {object_type.class_name}& row)")
+    lines.append("    {")
+    lines.append("        return mt::Json::object(")
+    lines.append("            {")
+    for index, field in enumerate(object_type.fields):
+        comma = "," if index + 1 < len(object_type.fields) else ""
+        value_expr = cpp_to_json_expr(field["type"], f"row.{field['name']}")
+        lines.append(f"                {{{cpp_string(field['name'])}, {value_expr}}}{comma}")
+    lines.append("            }")
+    lines.append("        );")
+    lines.append("    }")
+    lines.append("")
+
+    lines.append(f"    static {object_type.class_name} from_json_{object_type.class_name}(const mt::Json& json)")
+    lines.append("    {")
+    lines.append(f"        return {object_type.class_name}{{")
+    for index, field in enumerate(object_type.fields):
+        comma = "," if index + 1 < len(object_type.fields) else ""
+        json_expr = f"json[{cpp_string(field['name'])}]"
+        lines.append(f"            .{field['name']} = {json_to_cpp_expr(field['type'], json_expr)}{comma}")
+    lines.append("        };")
+    lines.append("    }")
+
+
 def render(schema):
     class_name = schema["class_name"]
     mapping_name = f"{class_name}Mapping"
@@ -317,14 +427,10 @@ def render(schema):
         lines.append("{")
         lines.append("")
 
-    lines.append(f"struct {class_name}")
-    lines.append("{")
-    for field in schema["fields"]:
-        lines.append(f"    {cpp_type(field['type'])} {field['name']}{cpp_default(field)};")
-    lines.append("")
-    lines.append(f"    friend bool operator==(const {class_name}&, const {class_name}&) = default;")
-    lines.append("};")
-    lines.append("")
+    for type_desc in object_types(schema):
+        append_struct(lines, type_desc.class_name, type_desc.fields)
+
+    append_struct(lines, class_name, schema["fields"])
 
     lines.append(f"struct {mapping_name}")
     lines.append("{")
@@ -378,6 +484,11 @@ def render(schema):
             lines.append("        }")
             lines.append("        return values;")
             lines.append("    }")
+
+    if object_types(schema):
+        for index, type_desc in enumerate(object_types(schema)):
+            lines.append("")
+            append_object_json_helpers(lines, type_desc)
 
     lines.append("")
     lines.append("    static " + class_name + " from_json(const mt::Json& json)")
