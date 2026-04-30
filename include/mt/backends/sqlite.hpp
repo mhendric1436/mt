@@ -16,6 +16,8 @@
 namespace mt::backends::sqlite
 {
 
+struct SqliteBackendState;
+
 class SqliteBackend final : public IDatabaseBackend
 {
   public:
@@ -29,7 +31,7 @@ class SqliteBackend final : public IDatabaseBackend
     CollectionDescriptor get_collection(std::string_view logical_name) override;
 
   private:
-    std::string path_;
+    std::shared_ptr<SqliteBackendState> state_;
 };
 
 } // namespace mt::backends::sqlite

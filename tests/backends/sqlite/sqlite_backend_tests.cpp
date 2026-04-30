@@ -124,6 +124,25 @@ void test_sqlite_backend_bootstrap_creates_private_metadata()
     std::filesystem::remove(path);
 }
 
+void test_sqlite_backend_bootstrap_runs_once_per_backend_instance()
+{
+    auto path = sqlite_test_path("mt_sqlite_bootstrap_once_test.sqlite");
+    mt::backends::sqlite::SqliteBackend backend{path.string()};
+
+    backend.bootstrap(mt::BootstrapSpec{.metadata_schema_version = 7});
+    backend.bootstrap(mt::BootstrapSpec{.metadata_schema_version = 9});
+
+    auto connection = mt::backends::sqlite::detail::Connection::open(path.string());
+    mt::backends::sqlite::detail::Statement metadata{
+        connection.get(),
+        mt::backends::sqlite::detail::PrivateSchemaSql::select_metadata_schema_version()
+    };
+    EXPECT_TRUE(metadata.step());
+    EXPECT_EQ(metadata.column_int64(0), std::int64_t{7});
+
+    std::filesystem::remove(path);
+}
+
 mt::CollectionSpec sqlite_user_schema(int schema_version = 1)
 {
     return mt::CollectionSpec{
@@ -1116,6 +1135,7 @@ int main()
     test_sqlite_backend_reports_capabilities();
     test_sqlite_backend_rejects_unimplemented_operations();
     test_sqlite_backend_bootstrap_creates_private_metadata();
+    test_sqlite_backend_bootstrap_runs_once_per_backend_instance();
     test_sqlite_backend_ensure_collection_creates_and_gets_descriptor();
     test_sqlite_backend_ensure_collection_persists_across_instances();
     test_sqlite_backend_accepts_compatible_schema_change();

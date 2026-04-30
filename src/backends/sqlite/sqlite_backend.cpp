@@ -6,10 +6,12 @@
 #include "mt/json_parser.hpp"
 #include "mt/schema.hpp"
 
+#include <atomic>
 #include <cstdint>
 #include <iomanip>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -26,6 +28,18 @@
 
 namespace mt::backends::sqlite
 {
+
+struct SqliteBackendState
+{
+    explicit SqliteBackendState(std::string sqlite_path)
+        : path(std::move(sqlite_path))
+    {
+    }
+
+    std::string path;
+    std::mutex bootstrap_mutex;
+    std::atomic_bool bootstrapped = false;
+};
 
 namespace
 {
@@ -478,11 +492,51 @@ void bootstrap_schema(
     connection.execute(detail::PrivateSchemaSql::create_current_table());
 }
 
+void ensure_bootstrapped(
+    const std::shared_ptr<SqliteBackendState>& state,
+    const BootstrapSpec& spec = BootstrapSpec{}
+)
+{
+    if (state->path == ":memory:")
+    {
+        return;
+    }
+
+    if (state->bootstrapped.load())
+    {
+        return;
+    }
+
+    auto lock = std::lock_guard<std::mutex>{state->bootstrap_mutex};
+    if (state->bootstrapped.load())
+    {
+        return;
+    }
+
+    auto connection = detail::Connection::open(state->path);
+    bootstrap_schema(connection, spec);
+    state->bootstrapped.store(true);
+}
+
+detail::Connection open_bootstrapped_connection(const std::shared_ptr<SqliteBackendState>& state)
+{
+    if (state->path == ":memory:")
+    {
+        // SQLite in-memory databases are scoped to a single connection.
+        auto connection = detail::Connection::open(state->path);
+        bootstrap_schema(connection, BootstrapSpec{});
+        return connection;
+    }
+
+    ensure_bootstrapped(state);
+    return detail::Connection::open(state->path);
+}
+
 class SqliteSession final : public IBackendSession
 {
   public:
-    explicit SqliteSession(std::string path)
-        : path_(std::move(path))
+    explicit SqliteSession(std::shared_ptr<SqliteBackendState> state)
+        : state_(std::move(state))
     {
     }
 
@@ -493,8 +547,7 @@ class SqliteSession final : public IBackendSession
             throw BackendError("sqlite backend transaction is already open");
         }
 
-        connection_ = detail::Connection::open(path_);
-        bootstrap_schema(*connection_, BootstrapSpec{});
+        connection_ = open_bootstrapped_connection(state_);
         connection_->execute(detail::PrivateSchemaSql::begin_immediate());
         in_backend_tx_ = true;
     }
@@ -907,7 +960,7 @@ class SqliteSession final : public IBackendSession
     }
 
   private:
-    std::string path_;
+    std::shared_ptr<SqliteBackendState> state_;
     std::optional<detail::Connection> connection_;
     bool in_backend_tx_ = false;
     bool clock_locked_ = false;
@@ -921,7 +974,7 @@ SqliteBackend::SqliteBackend()
 }
 
 SqliteBackend::SqliteBackend(std::string path)
-    : path_(std::move(path))
+    : state_(std::make_shared<SqliteBackendState>(std::move(path)))
 {
 }
 
@@ -937,20 +990,24 @@ BackendCapabilities SqliteBackend::capabilities() const
 
 std::unique_ptr<IBackendSession> SqliteBackend::open_session()
 {
-    return std::make_unique<SqliteSession>(path_);
+    return std::make_unique<SqliteSession>(state_);
 }
 
 void SqliteBackend::bootstrap(const BootstrapSpec& spec)
 {
-    auto connection = detail::Connection::open(path_);
-    bootstrap_schema(connection, spec);
+    if (state_->path == ":memory:")
+    {
+        auto connection = detail::Connection::open(state_->path);
+        bootstrap_schema(connection, spec);
+        return;
+    }
+
+    ensure_bootstrapped(state_, spec);
 }
 
 CollectionDescriptor SqliteBackend::ensure_collection(const CollectionSpec& spec)
 {
-    auto connection = detail::Connection::open(path_);
-    bootstrap_schema(connection, BootstrapSpec{});
-
+    auto connection = open_bootstrapped_connection(state_);
     connection.execute(detail::PrivateSchemaSql::begin_immediate());
     try
     {
@@ -990,8 +1047,7 @@ CollectionDescriptor SqliteBackend::ensure_collection(const CollectionSpec& spec
 
 CollectionDescriptor SqliteBackend::get_collection(std::string_view logical_name)
 {
-    auto connection = detail::Connection::open(path_);
-    bootstrap_schema(connection, BootstrapSpec{});
+    auto connection = open_bootstrapped_connection(state_);
     return load_collection_descriptor(connection, logical_name);
 }
 
