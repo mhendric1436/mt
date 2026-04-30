@@ -450,6 +450,7 @@ class SqliteSession final : public IBackendSession
         require_backend_tx();
         connection_->execute("COMMIT");
         in_backend_tx_ = false;
+        clock_locked_ = false;
         connection_.reset();
     }
 
@@ -460,38 +461,96 @@ class SqliteSession final : public IBackendSession
             sqlite3_exec(connection_->get(), "ROLLBACK", nullptr, nullptr, nullptr);
         }
         in_backend_tx_ = false;
+        clock_locked_ = false;
         connection_.reset();
     }
 
     Version read_clock() override
     {
-        throw BackendError("sqlite clock operations are not implemented");
+        require_backend_tx();
+        return read_clock_row();
     }
 
     Version lock_clock_and_read() override
     {
-        throw BackendError("sqlite clock operations are not implemented");
+        require_backend_tx();
+        if (clock_locked_)
+        {
+            throw BackendError("sqlite clock is already locked by this session");
+        }
+
+        auto version = read_clock_row();
+        clock_locked_ = true;
+        return version;
     }
 
     Version increment_clock_and_return() override
     {
-        throw BackendError("sqlite clock operations are not implemented");
+        require_backend_tx();
+        if (!clock_locked_)
+        {
+            throw BackendError("clock must be locked before increment");
+        }
+
+        connection_->execute("UPDATE mt_clock SET version = version + 1 WHERE id = 1");
+        return read_clock_row();
     }
 
     TxId create_transaction_id() override
     {
-        throw BackendError("sqlite transaction IDs are not implemented");
+        require_backend_tx();
+
+        auto tx_number = std::int64_t{0};
+        {
+            detail::Statement statement{
+                connection_->get(), "SELECT next_tx_id FROM mt_clock WHERE id = 1"
+            };
+            if (!statement.step())
+            {
+                throw BackendError("sqlite clock row is missing");
+            }
+            tx_number = statement.column_int64(0);
+        }
+
+        connection_->execute("UPDATE mt_clock SET next_tx_id = next_tx_id + 1 WHERE id = 1");
+        return "sqlite:" + std::to_string(tx_number);
     }
 
     void register_active_transaction(
-        TxId,
-        Version
+        TxId tx_id,
+        Version start_version
     ) override
     {
-        throw BackendError("sqlite active transaction metadata is not implemented");
+        require_backend_tx();
+
+        detail::Statement statement{
+            connection_->get(),
+            "INSERT OR REPLACE INTO mt_active_transactions (tx_id, start_version) VALUES (?, ?)"
+        };
+        statement.bind_text(1, tx_id);
+        statement.bind_int64(2, start_version);
+        statement.step();
     }
 
-    void unregister_active_transaction(TxId) noexcept override {}
+    void unregister_active_transaction(TxId tx_id) noexcept override
+    {
+        try
+        {
+            if (!connection_ || !in_backend_tx_)
+            {
+                return;
+            }
+
+            detail::Statement statement{
+                connection_->get(), "DELETE FROM mt_active_transactions WHERE tx_id = ?"
+            };
+            statement.bind_text(1, tx_id);
+            statement.step();
+        }
+        catch (...)
+        {
+        }
+    }
 
     std::optional<DocumentEnvelope> read_snapshot(
         CollectionId,
@@ -571,10 +630,23 @@ class SqliteSession final : public IBackendSession
         }
     }
 
+    Version read_clock_row()
+    {
+        detail::Statement statement{
+            connection_->get(), "SELECT version FROM mt_clock WHERE id = 1"
+        };
+        if (!statement.step())
+        {
+            throw BackendError("sqlite clock row is missing");
+        }
+        return static_cast<Version>(statement.column_int64(0));
+    }
+
   private:
     std::string path_;
     std::optional<detail::Connection> connection_;
     bool in_backend_tx_ = false;
+    bool clock_locked_ = false;
 };
 
 } // namespace
