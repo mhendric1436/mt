@@ -1,0 +1,76 @@
+@startuml mt_schema_migration
+
+title mt Automatic Schema Evolution
+
+skinparam shadowing false
+
+start
+
+partition "Application Project" {
+  :Maintain local *.mt.json schema;
+  :Run tools/mt_codegen.py;
+  :Compile generated Row + Mapping header;
+}
+
+partition "Generated Mapping" {
+  :Expose table_name;
+  :Expose schema_version;
+  :Expose key_field;
+  :Expose fields() metadata;
+  :Expose indexes() metadata;
+}
+
+partition "mt Core" {
+  :Application requests table<Row, Mapping>();
+  :Build CollectionSpec from Mapping metadata;
+}
+
+partition "Backend" {
+  :ensure_collection(spec);
+
+  if (Collection exists?) then (no)
+    :Create collection descriptor;
+    :Store accepted schema snapshot;
+    :Store index metadata;
+    :Return descriptor;
+  else (yes)
+    :Load stored schema snapshot;
+    :Run diff_schemas(stored, requested);
+
+    if (Diff is compatible?) then (yes)
+      :Update stored schema snapshot;
+      :Update index metadata;
+      :Update descriptor schema_version;
+      :Return descriptor;
+    else (no)
+      :Leave stored snapshot unchanged;
+      :Leave descriptor unchanged;
+      :Throw BackendError;
+      stop
+    endif
+  endif
+}
+
+partition "mt Core" {
+  :Cache CollectionDescriptor;
+  :Use table for reads and transactions;
+}
+
+stop
+
+legend right
+Compatible examples:
+- add optional field
+- add non-required field
+- add field with default
+- add compatible nested object field
+
+Rejected examples:
+- key field change
+- field removal
+- field type change
+- optional/array value type change
+- required field without default
+endlegend
+
+@enduml
