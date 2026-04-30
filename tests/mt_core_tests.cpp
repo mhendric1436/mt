@@ -193,7 +193,7 @@ void test_memory_backend_stores_schema_snapshot_on_create()
     EXPECT_EQ(descriptor.logical_name, snapshot->logical_name);
 }
 
-void test_memory_backend_keeps_existing_schema_snapshot_on_repeat_ensure()
+void test_memory_backend_updates_schema_snapshot_for_compatible_repeat_ensure()
 {
     mt::backends::memory::MemoryBackend backend;
     mt::CollectionSpec initial{
@@ -218,9 +218,36 @@ void test_memory_backend_keeps_existing_schema_snapshot_on_repeat_ensure()
 
     EXPECT_EQ(second.id, first.id);
     EXPECT_TRUE(snapshot.has_value());
+    EXPECT_EQ(second.schema_version, 2);
+    EXPECT_EQ(snapshot->schema_version, 2);
+    EXPECT_EQ(snapshot->fields.size(), std::size_t{3});
+    EXPECT_EQ(snapshot->fields[2].name, std::string("nickname"));
+}
+
+void test_memory_backend_rejects_incompatible_schema_change()
+{
+    mt::backends::memory::MemoryBackend backend;
+    mt::CollectionSpec initial{
+        .logical_name = "schema_users",
+        .schema_version = 1,
+        .key_field = "id",
+        .fields = {mt::FieldSpec::string("id"), mt::FieldSpec::string("email")}
+    };
+    mt::CollectionSpec requested{
+        .logical_name = "schema_users",
+        .schema_version = 2,
+        .key_field = "id",
+        .fields = {mt::FieldSpec::string("id")}
+    };
+
+    auto first = backend.ensure_collection(initial);
+    EXPECT_THROW_AS(backend.ensure_collection(requested), mt::BackendError);
+
+    auto snapshot = backend.schema_snapshot("schema_users");
+    EXPECT_TRUE(snapshot.has_value());
     EXPECT_EQ(snapshot->schema_version, 1);
     EXPECT_EQ(snapshot->fields.size(), std::size_t{2});
-    EXPECT_EQ(snapshot->fields[1].name, std::string("email"));
+    EXPECT_EQ(backend.get_collection("schema_users").schema_version, first.schema_version);
 }
 
 mt::CollectionSpec user_schema_spec()
@@ -1324,7 +1351,8 @@ int main()
     test_table_provider_creates_table();
     test_memory_backend_reports_capabilities();
     test_memory_backend_stores_schema_snapshot_on_create();
-    test_memory_backend_keeps_existing_schema_snapshot_on_repeat_ensure();
+    test_memory_backend_updates_schema_snapshot_for_compatible_repeat_ensure();
+    test_memory_backend_rejects_incompatible_schema_change();
     test_schema_diff_reports_no_changes_for_matching_schema();
     test_schema_diff_accepts_compatible_added_fields();
     test_schema_diff_rejects_required_added_field_without_default();

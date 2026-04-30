@@ -2,6 +2,7 @@
 
 #include "mt/backend.hpp"
 #include "mt/errors.hpp"
+#include "mt/schema.hpp"
 
 #include <map>
 #include <memory>
@@ -602,6 +603,26 @@ class MemoryBackend final : public IDatabaseBackend
         auto existing = state_->descriptors_by_name.find(spec.logical_name);
         if (existing != state_->descriptors_by_name.end())
         {
+            auto collection_it = state_->collections.find(existing->second.id);
+            if (collection_it == state_->collections.end())
+            {
+                throw BackendError("memory backend collection metadata is inconsistent");
+            }
+
+            auto diff = diff_schemas(collection_it->second.schema, spec);
+            if (!diff.is_compatible())
+            {
+                const auto& change = diff.incompatible_changes.front();
+                throw BackendError(
+                    "incompatible schema change for collection '" + spec.logical_name + "' at " +
+                    change.path + ": " + change.message
+                );
+            }
+
+            collection_it->second.schema = spec;
+            collection_it->second.indexes = spec.indexes;
+            collection_it->second.descriptor.schema_version = spec.schema_version;
+            existing->second.schema_version = spec.schema_version;
             return existing->second;
         }
 
