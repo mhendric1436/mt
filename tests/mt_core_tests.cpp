@@ -1,6 +1,7 @@
 #include "mt/backends/memory.hpp"
 #include "mt/backends/postgres.hpp"
 #include "mt/core.hpp"
+#include "mt/json_parser.hpp"
 
 #include <cassert>
 #include <iostream>
@@ -769,6 +770,40 @@ void test_json_null_and_array_helpers()
     EXPECT_EQ(mt::hash_json(array_value), mt::hash_json(same_array));
 }
 
+void test_json_parser_parses_canonical_objects_and_arrays()
+{
+    auto encoded = std::string(
+        "{\"active\":true,\"count\":7,\"nested\":{\"name\":\"Alice\"},\"tags\":[\"one\",null]}"
+    );
+    auto parsed = mt::parse_json(encoded);
+
+    EXPECT_TRUE(parsed.is_object());
+    EXPECT_TRUE(parsed["active"].as_bool());
+    EXPECT_EQ(parsed["count"].as_int64(), std::int64_t{7});
+    EXPECT_EQ(parsed["nested"]["name"].as_string(), std::string("Alice"));
+    EXPECT_EQ(parsed["tags"].as_array().size(), std::size_t{2});
+    EXPECT_EQ(parsed.canonical_string(), encoded);
+}
+
+void test_json_parser_parses_escapes_and_numbers()
+{
+    auto parsed = mt::parse_json(
+        "{\"double\":1.25,\"exp\":1000.0,\"int\":-42,\"text\":\"line\\n\\u0041\\\\\\\"\"}"
+    );
+
+    EXPECT_EQ(parsed["int"].as_int64(), std::int64_t{-42});
+    EXPECT_EQ(parsed["double"].as_double(), 1.25);
+    EXPECT_EQ(parsed["exp"].as_double(), 1000.0);
+    EXPECT_EQ(parsed["text"].as_string(), std::string("line\nA\\\""));
+}
+
+void test_json_parser_rejects_invalid_json()
+{
+    EXPECT_THROW_AS(mt::parse_json("{\"missing\":true"), mt::BackendError);
+    EXPECT_THROW_AS(mt::parse_json("[1,]"), mt::BackendError);
+    EXPECT_THROW_AS(mt::parse_json("\"\\u00ff\""), mt::BackendError);
+}
+
 void test_non_transactional_get_missing_returns_nullopt()
 {
     Harness h;
@@ -1477,6 +1512,9 @@ int main()
     test_commit_semantics_conflict_does_not_make_write_visible();
     test_json_values_round_trip_and_hash_stably();
     test_json_null_and_array_helpers();
+    test_json_parser_parses_canonical_objects_and_arrays();
+    test_json_parser_parses_escapes_and_numbers();
+    test_json_parser_rejects_invalid_json();
     test_non_transactional_get_missing_returns_nullopt();
     test_transactional_put_then_non_transactional_get();
     test_require_missing_throws();

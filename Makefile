@@ -38,6 +38,7 @@ GENERATED_DIR := $(BUILD_DIR)/generated
 CORE_HEADER := include/mt/core.hpp
 CORE_HEADERS := \
 	include/mt/json.hpp \
+	include/mt/json_parser.hpp \
 	include/mt/hash.hpp \
 	include/mt/errors.hpp \
 	include/mt/query.hpp \
