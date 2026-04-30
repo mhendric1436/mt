@@ -1,3 +1,4 @@
+#include "../../../build/generated/user.hpp"
 #include "mt/backends/sqlite.hpp"
 #include "mt/core.hpp"
 
@@ -11,6 +12,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #define EXPECT_FALSE(expr) assert(!(expr))
@@ -32,56 +34,33 @@
         assert(did_throw && "expected exception not thrown");                                      \
     } while (false)
 
-struct SqliteUser
+using SqliteUser = mt_examples::User;
+using SqliteUserMapping = mt_examples::UserMapping;
+
+SqliteUser sqlite_user(
+    std::string id,
+    std::string email,
+    bool active = true
+)
 {
-    std::string id;
-    std::string email;
-    bool active = true;
+    return SqliteUser{
+        .id = std::move(id),
+        .email = std::move(email),
+        .name = "SQLite Test User",
+        .tags = {},
+        .address = mt_examples::Address{.city = "Denver", .postal_code = "80202", .labels = {}},
+        .active = active
+    };
+}
 
-    friend bool operator==(
-        const SqliteUser&,
-        const SqliteUser&
-    ) = default;
-};
-
-struct SqliteUserMapping
+mt::Json sqlite_user_json(
+    std::string id,
+    std::string email,
+    bool active = true
+)
 {
-    static constexpr std::string_view table_name = "users";
-    static constexpr int schema_version = 1;
-    static constexpr std::string_view key_field = "id";
-
-    static std::string key(const SqliteUser& user)
-    {
-        return user.id;
-    }
-
-    static std::vector<mt::FieldSpec> fields()
-    {
-        return {
-            mt::FieldSpec::string("id"), mt::FieldSpec::string("email"),
-            mt::FieldSpec::boolean("active").mark_required(false).with_default(mt::Json(true))
-        };
-    }
-
-    static mt::Json to_json(const SqliteUser& user)
-    {
-        return mt::Json::object({{"id", user.id}, {"email", user.email}, {"active", user.active}});
-    }
-
-    static SqliteUser from_json(const mt::Json& json)
-    {
-        return SqliteUser{
-            .id = json["id"].as_string(),
-            .email = json["email"].as_string(),
-            .active = json["active"].as_bool()
-        };
-    }
-
-    static std::vector<mt::IndexSpec> indexes()
-    {
-        return {mt::IndexSpec::json_path_index("email", "$.email").make_unique()};
-    }
-};
+    return SqliteUserMapping::to_json(sqlite_user(std::move(id), std::move(email), active));
+}
 
 void test_sqlite_backend_reports_capabilities()
 {
@@ -148,14 +127,11 @@ void test_sqlite_backend_bootstrap_creates_private_metadata()
 mt::CollectionSpec sqlite_user_schema(int schema_version = 1)
 {
     return mt::CollectionSpec{
-        .logical_name = "users",
-        .indexes = {mt::IndexSpec::json_path_index("email", "$.email").make_unique()},
+        .logical_name = std::string(SqliteUserMapping::table_name),
+        .indexes = SqliteUserMapping::indexes(),
         .schema_version = schema_version,
-        .key_field = "id",
-        .fields = {
-            mt::FieldSpec::string("id"), mt::FieldSpec::string("email"),
-            mt::FieldSpec::boolean("active").mark_required(false).with_default(mt::Json(true))
-        }
+        .key_field = std::string(SqliteUserMapping::key_field),
+        .fields = SqliteUserMapping::fields()
     };
 }
 
@@ -278,7 +254,7 @@ void test_sqlite_backend_session_rejects_unsupported_queries()
         mt::QueryPredicate{
             .op = mt::QueryOp::JsonContains,
             .path = "$",
-            .value = mt::Json::object({{"email", "a@example.com"}})
+            .value = sqlite_user_json("user:1", "a@example.com")
         }
     );
 
@@ -412,7 +388,7 @@ void test_sqlite_backend_document_writes_insert_history_and_current()
         .collection = descriptor.id,
         .key = "user:1",
         .kind = mt::WriteKind::Put,
-        .value = mt::Json::object({{"email", "a@example.com"}}),
+        .value = sqlite_user_json("user:1", "a@example.com"),
         .value_hash = test_hash(0x12)
     };
 
@@ -435,7 +411,9 @@ void test_sqlite_backend_document_writes_insert_history_and_current()
     EXPECT_EQ(history.column_int64(0), std::int64_t{7});
     EXPECT_EQ(history.column_int64(1), std::int64_t{0});
     EXPECT_EQ(history.column_text(2), std::string("1213"));
-    EXPECT_EQ(history.column_text(3), std::string("{\"email\":\"a@example.com\"}"));
+    EXPECT_EQ(
+        history.column_text(3), sqlite_user_json("user:1", "a@example.com").canonical_string()
+    );
 
     mt::backends::sqlite::detail::Statement current{
         connection.get(),
@@ -447,7 +425,9 @@ void test_sqlite_backend_document_writes_insert_history_and_current()
     EXPECT_EQ(current.column_int64(0), std::int64_t{7});
     EXPECT_EQ(current.column_int64(1), std::int64_t{0});
     EXPECT_EQ(current.column_text(2), std::string("1213"));
-    EXPECT_EQ(current.column_text(3), std::string("{\"email\":\"a@example.com\"}"));
+    EXPECT_EQ(
+        current.column_text(3), sqlite_user_json("user:1", "a@example.com").canonical_string()
+    );
 
     std::filesystem::remove(path);
 }
@@ -499,7 +479,7 @@ void test_sqlite_backend_document_writes_rollback_on_abort()
         .collection = descriptor.id,
         .key = "user:1",
         .kind = mt::WriteKind::Put,
-        .value = mt::Json::object({{"email", "a@example.com"}}),
+        .value = sqlite_user_json("user:1", "a@example.com"),
         .value_hash = test_hash(0x31)
     };
 
@@ -531,14 +511,14 @@ void test_sqlite_backend_point_reads_return_snapshot_versions()
         .collection = descriptor.id,
         .key = "user:1",
         .kind = mt::WriteKind::Put,
-        .value = mt::Json::object({{"email", "old@example.com"}}),
+        .value = sqlite_user_json("user:1", "old@example.com"),
         .value_hash = test_hash(0x41)
     };
     mt::WriteEnvelope second{
         .collection = descriptor.id,
         .key = "user:1",
         .kind = mt::WriteKind::Put,
-        .value = mt::Json::object({{"email", "new@example.com"}}),
+        .value = sqlite_user_json("user:1", "new@example.com"),
         .value_hash = test_hash(0x51)
     };
 
@@ -632,21 +612,21 @@ void test_sqlite_backend_list_snapshot_orders_and_paginates()
         .collection = descriptor.id,
         .key = "user:1",
         .kind = mt::WriteKind::Put,
-        .value = mt::Json::object({{"email", "one@example.com"}}),
+        .value = sqlite_user_json("user:1", "one@example.com"),
         .value_hash = test_hash(0x71)
     };
     mt::WriteEnvelope user_2_old{
         .collection = descriptor.id,
         .key = "user:2",
         .kind = mt::WriteKind::Put,
-        .value = mt::Json::object({{"email", "old@example.com"}}),
+        .value = sqlite_user_json("user:2", "old@example.com"),
         .value_hash = test_hash(0x72)
     };
     mt::WriteEnvelope user_2_new{
         .collection = descriptor.id,
         .key = "user:2",
         .kind = mt::WriteKind::Put,
-        .value = mt::Json::object({{"email", "new@example.com"}}),
+        .value = sqlite_user_json("user:2", "new@example.com"),
         .value_hash = test_hash(0x73)
     };
     mt::WriteEnvelope user_3_delete{
@@ -712,7 +692,7 @@ void test_sqlite_backend_list_current_metadata_orders_and_paginates()
         .collection = descriptor.id,
         .key = "user:1",
         .kind = mt::WriteKind::Put,
-        .value = mt::Json::object({{"email", "one@example.com"}}),
+        .value = sqlite_user_json("user:1", "one@example.com"),
         .value_hash = test_hash(0x81)
     };
     mt::WriteEnvelope user_2{
@@ -762,21 +742,21 @@ void test_sqlite_backend_query_snapshot_supports_key_prefix_and_json_equals()
         .collection = descriptor.id,
         .key = "user:1",
         .kind = mt::WriteKind::Put,
-        .value = mt::Json::object({{"email", "match@example.com"}, {"active", true}}),
+        .value = sqlite_user_json("user:1", "match@example.com", true),
         .value_hash = test_hash(0x91)
     };
     mt::WriteEnvelope user_2{
         .collection = descriptor.id,
         .key = "user:2",
         .kind = mt::WriteKind::Put,
-        .value = mt::Json::object({{"email", "skip@example.com"}, {"active", false}}),
+        .value = sqlite_user_json("user:2", "skip@example.com", false),
         .value_hash = test_hash(0x92)
     };
     mt::WriteEnvelope other{
         .collection = descriptor.id,
         .key = "other:1",
         .kind = mt::WriteKind::Put,
-        .value = mt::Json::object({{"email", "other@example.com"}, {"active", true}}),
+        .value = sqlite_user_json("other:1", "other@example.com", true),
         .value_hash = test_hash(0x93)
     };
 
@@ -823,14 +803,14 @@ void test_sqlite_backend_query_current_metadata_filters_and_limits()
         .collection = descriptor.id,
         .key = "user:1",
         .kind = mt::WriteKind::Put,
-        .value = mt::Json::object({{"email", "one@example.com"}, {"active", true}}),
+        .value = sqlite_user_json("user:1", "one@example.com", true),
         .value_hash = test_hash(0xA1)
     };
     mt::WriteEnvelope user_2{
         .collection = descriptor.id,
         .key = "user:2",
         .kind = mt::WriteKind::Put,
-        .value = mt::Json::object({{"email", "two@example.com"}, {"active", true}}),
+        .value = sqlite_user_json("user:2", "two@example.com", true),
         .value_hash = test_hash(0xA2)
     };
     mt::WriteEnvelope deleted{
@@ -881,14 +861,14 @@ void test_sqlite_backend_enforces_unique_indexes()
         .collection = descriptor.id,
         .key = "user:1",
         .kind = mt::WriteKind::Put,
-        .value = mt::Json::object({{"email", "same@example.com"}}),
+        .value = sqlite_user_json("user:1", "same@example.com"),
         .value_hash = test_hash(0xB1)
     };
     mt::WriteEnvelope conflict{
         .collection = descriptor.id,
         .key = "user:2",
         .kind = mt::WriteKind::Put,
-        .value = mt::Json::object({{"email", "same@example.com"}}),
+        .value = sqlite_user_json("user:2", "same@example.com"),
         .value_hash = test_hash(0xB2)
     };
 
@@ -914,14 +894,14 @@ void test_sqlite_backend_unique_indexes_allow_same_key_update_missing_path_and_d
         .collection = descriptor.id,
         .key = "user:1",
         .kind = mt::WriteKind::Put,
-        .value = mt::Json::object({{"email", "same@example.com"}}),
+        .value = sqlite_user_json("user:1", "same@example.com"),
         .value_hash = test_hash(0xC1)
     };
     mt::WriteEnvelope same_key{
         .collection = descriptor.id,
         .key = "user:1",
         .kind = mt::WriteKind::Put,
-        .value = mt::Json::object({{"email", "same@example.com"}, {"active", false}}),
+        .value = sqlite_user_json("user:1", "same@example.com", false),
         .value_hash = test_hash(0xC2)
     };
     mt::WriteEnvelope missing_path{
@@ -958,6 +938,12 @@ void test_sqlite_backend_unique_indexes_allow_same_key_update_missing_path_and_d
 void test_sqlite_core_transactions_persist_across_backend_instances()
 {
     auto path = sqlite_test_path("mt_sqlite_core_persistence_test.sqlite");
+    auto saved = sqlite_user("user:1", "one@example.com");
+    saved.nickname = std::string("one");
+    saved.tags = {"sqlite", "generated"};
+    saved.address.unit = std::string("5A");
+    saved.address.labels = {"home"};
+    saved.login_count = 3;
 
     {
         auto backend = std::make_shared<mt::backends::sqlite::SqliteBackend>(path.string());
@@ -966,8 +952,7 @@ void test_sqlite_core_transactions_persist_across_backend_instances()
         mt::TableProvider tables{db};
         auto users = tables.table<SqliteUser, SqliteUserMapping>();
 
-        txs.run([&](mt::Transaction& tx)
-                { users.put(tx, SqliteUser{.id = "user:1", .email = "one@example.com"}); });
+        txs.run([&](mt::Transaction& tx) { users.put(tx, saved); });
     }
 
     {
@@ -977,8 +962,7 @@ void test_sqlite_core_transactions_persist_across_backend_instances()
         auto users = tables.table<SqliteUser, SqliteUserMapping>();
 
         auto loaded = users.require("user:1");
-        EXPECT_EQ(loaded.email, std::string("one@example.com"));
-        EXPECT_TRUE(loaded.active);
+        EXPECT_EQ(loaded, saved);
     }
 
     std::filesystem::remove(path);
@@ -996,9 +980,9 @@ void test_sqlite_core_table_list_query_and_delete()
     txs.run(
         [&](mt::Transaction& tx)
         {
-            users.put(tx, SqliteUser{.id = "user:1", .email = "one@example.com"});
-            users.put(tx, SqliteUser{.id = "user:2", .email = "two@example.com", .active = false});
-            users.put(tx, SqliteUser{.id = "other:1", .email = "other@example.com"});
+            users.put(tx, sqlite_user("user:1", "one@example.com"));
+            users.put(tx, sqlite_user("user:2", "two@example.com", false));
+            users.put(tx, sqlite_user("other:1", "other@example.com"));
         }
     );
 
@@ -1027,12 +1011,11 @@ void test_sqlite_core_transactions_reject_unique_index_conflict()
     mt::TableProvider tables{db};
     auto users = tables.table<SqliteUser, SqliteUserMapping>();
 
-    txs.run([&](mt::Transaction& tx)
-            { users.put(tx, SqliteUser{.id = "user:1", .email = "same@example.com"}); });
+    txs.run([&](mt::Transaction& tx) { users.put(tx, sqlite_user("user:1", "same@example.com")); });
 
     EXPECT_THROW_AS(
         txs.run([&](mt::Transaction& tx)
-                { users.put(tx, SqliteUser{.id = "user:2", .email = "same@example.com"}); }),
+                { users.put(tx, sqlite_user("user:2", "same@example.com")); }),
         mt::BackendError
     );
 
@@ -1054,7 +1037,7 @@ void test_sqlite_core_rejects_unsupported_query()
         mt::QueryPredicate{
             .op = mt::QueryOp::JsonContains,
             .path = "$",
-            .value = mt::Json::object({{"email", "one@example.com"}})
+            .value = sqlite_user_json("user:1", "one@example.com")
         }
     );
 
