@@ -1,5 +1,7 @@
 #include "mt/backends/sqlite.hpp"
 
+#include "sqlite_detail.hpp"
+
 // -----------------------------------------------------------------------------
 // SQLite backend implementation unit.
 //

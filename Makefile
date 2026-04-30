@@ -56,13 +56,14 @@ CORE_HEADERS := \
 TEST_SRC    := tests/mt_core_tests.cpp
 CODEGEN_TEST_SRC := tests/mt_codegen_tests.cpp
 SQLITE_BACKEND_SRC := src/backends/sqlite/sqlite_backend.cpp
+SQLITE_BACKEND_HEADERS := src/backends/sqlite/sqlite_detail.hpp
 SQLITE_TEST_SRC := tests/backends/sqlite/sqlite_backend_tests.cpp
 HEADER_CHECK_SRC := src/mt_core.cpp
 CODEGEN := python3 tools/mt_codegen.py
 CODEGEN_VALIDATION_TEST := python3 tools/test_mt_codegen.py
 EXAMPLE_SCHEMA := examples/schemas/user.mt.json
 GENERATED_EXAMPLE_HEADER := $(GENERATED_DIR)/user.hpp
-FORMAT_FILES := $(CORE_HEADERS) $(HEADER_CHECK_SRC) $(TEST_SRC) $(CODEGEN_TEST_SRC) $(wildcard $(SQLITE_BACKEND_SRC) $(SQLITE_TEST_SRC))
+FORMAT_FILES := $(CORE_HEADERS) $(HEADER_CHECK_SRC) $(TEST_SRC) $(CODEGEN_TEST_SRC) $(wildcard $(SQLITE_BACKEND_SRC) $(SQLITE_BACKEND_HEADERS) $(SQLITE_TEST_SRC))
 PUML_FILES := $(wildcard docs/*.puml)
 
 .PHONY: all build test check sqlite-build sqlite-test sqlite-check codegen-examples codegen-validation header-check format docs-png clean-docs clean rebuild print-config
@@ -87,7 +88,7 @@ $(GENERATED_EXAMPLE_HEADER): $(EXAMPLE_SCHEMA) tools/mt_codegen.py | $(GENERATED
 $(CODEGEN_TEST_BIN): $(CODEGEN_TEST_SRC) $(GENERATED_EXAMPLE_HEADER) $(CORE_HEADERS) | $(BUILD_STAMP)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(CODEGEN_TEST_SRC) -o $@ $(LDFLAGS) $(LDLIBS)
 
-$(SQLITE_TEST_BIN): $(SQLITE_TEST_SRC) $(SQLITE_BACKEND_SRC) $(CORE_HEADERS) | $(BUILD_STAMP)
+$(SQLITE_TEST_BIN): $(SQLITE_TEST_SRC) $(SQLITE_BACKEND_SRC) $(SQLITE_BACKEND_HEADERS) $(CORE_HEADERS) | $(BUILD_STAMP)
 	$(CXX) $(CPPFLAGS) $(SQLITE_CFLAGS) $(CXXFLAGS) $(SQLITE_TEST_SRC) $(SQLITE_BACKEND_SRC) -o $@ $(LDFLAGS) $(SQLITE_LIBS) $(LDLIBS)
 
 test: build
