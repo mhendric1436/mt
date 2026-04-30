@@ -5,6 +5,7 @@
 #   make build      # build test binary
 #   make test       # build and run tests
 #   make check      # syntax-check header and run tests
+#   make sqlite-check # build and run optional SQLite backend tests
 #   make format     # format source files with clang-format
 #   make docs-png   # generate PNG diagrams from PlantUML files
 #   make clean-docs # remove generated PlantUML PNG files
@@ -16,17 +17,22 @@
 
 CXX ?= c++
 CLANG_FORMAT ?= clang-format
+PKG_CONFIG ?= pkg-config
 PLANTUML ?= plantuml
 
 CXXFLAGS ?= -std=c++20 -O0 -g -Wall -Wextra -Wpedantic
 CPPFLAGS ?= -Iinclude
 LDFLAGS  ?=
 LDLIBS   ?=
+SQLITE_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags sqlite3 2>/dev/null)
+SQLITE_LIBS ?= $(shell $(PKG_CONFIG) --libs sqlite3 2>/dev/null)
+SQLITE_LIBS := $(if $(SQLITE_LIBS),$(SQLITE_LIBS),-lsqlite3)
 
 BUILD_DIR := build
 BUILD_STAMP := $(BUILD_DIR)/.dir
 TEST_BIN  := $(BUILD_DIR)/mt_core_tests
 CODEGEN_TEST_BIN := $(BUILD_DIR)/mt_codegen_tests
+SQLITE_TEST_BIN := $(BUILD_DIR)/sqlite_backend_tests
 GENERATED_DIR := $(BUILD_DIR)/generated
 
 CORE_HEADER := include/mt/core.hpp
@@ -49,15 +55,17 @@ CORE_HEADERS := \
 	$(CORE_HEADER)
 TEST_SRC    := tests/mt_core_tests.cpp
 CODEGEN_TEST_SRC := tests/mt_codegen_tests.cpp
+SQLITE_BACKEND_SRC := src/backends/sqlite/sqlite_backend.cpp
+SQLITE_TEST_SRC := tests/backends/sqlite/sqlite_backend_tests.cpp
 HEADER_CHECK_SRC := src/mt_core.cpp
 CODEGEN := python3 tools/mt_codegen.py
 CODEGEN_VALIDATION_TEST := python3 tools/test_mt_codegen.py
 EXAMPLE_SCHEMA := examples/schemas/user.mt.json
 GENERATED_EXAMPLE_HEADER := $(GENERATED_DIR)/user.hpp
-FORMAT_FILES := $(CORE_HEADERS) $(HEADER_CHECK_SRC) $(TEST_SRC) $(CODEGEN_TEST_SRC)
+FORMAT_FILES := $(CORE_HEADERS) $(HEADER_CHECK_SRC) $(TEST_SRC) $(CODEGEN_TEST_SRC) $(wildcard $(SQLITE_BACKEND_SRC) $(SQLITE_TEST_SRC))
 PUML_FILES := $(wildcard docs/*.puml)
 
-.PHONY: all build test check codegen-examples codegen-validation header-check format docs-png clean-docs clean rebuild print-config
+.PHONY: all build test check sqlite-build sqlite-test sqlite-check codegen-examples codegen-validation header-check format docs-png clean-docs clean rebuild print-config
 
 all: test
 
@@ -79,11 +87,21 @@ $(GENERATED_EXAMPLE_HEADER): $(EXAMPLE_SCHEMA) tools/mt_codegen.py | $(GENERATED
 $(CODEGEN_TEST_BIN): $(CODEGEN_TEST_SRC) $(GENERATED_EXAMPLE_HEADER) $(CORE_HEADERS) | $(BUILD_STAMP)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(CODEGEN_TEST_SRC) -o $@ $(LDFLAGS) $(LDLIBS)
 
+$(SQLITE_TEST_BIN): $(SQLITE_TEST_SRC) $(SQLITE_BACKEND_SRC) $(CORE_HEADERS) | $(BUILD_STAMP)
+	$(CXX) $(CPPFLAGS) $(SQLITE_CFLAGS) $(CXXFLAGS) $(SQLITE_TEST_SRC) $(SQLITE_BACKEND_SRC) -o $@ $(LDFLAGS) $(SQLITE_LIBS) $(LDLIBS)
+
 test: build
 	./$(TEST_BIN)
 	./$(CODEGEN_TEST_BIN)
 
 check: codegen-examples codegen-validation header-check test
+
+sqlite-build: $(SQLITE_TEST_BIN)
+
+sqlite-test: sqlite-build
+	./$(SQLITE_TEST_BIN)
+
+sqlite-check: sqlite-test
 
 codegen-examples: $(GENERATED_EXAMPLE_HEADER)
 
@@ -112,6 +130,7 @@ clean:
 print-config:
 	@echo "CXX      = $(CXX)"
 	@echo "CLANG_FORMAT = $(CLANG_FORMAT)"
+	@echo "PKG_CONFIG = $(PKG_CONFIG)"
 	@echo "PLANTUML = $(PLANTUML)"
 	@echo "CODEGEN  = $(CODEGEN)"
 	@echo "CODEGEN_VALIDATION_TEST = $(CODEGEN_VALIDATION_TEST)"
@@ -119,3 +138,5 @@ print-config:
 	@echo "CXXFLAGS = $(CXXFLAGS)"
 	@echo "LDFLAGS  = $(LDFLAGS)"
 	@echo "LDLIBS   = $(LDLIBS)"
+	@echo "SQLITE_CFLAGS = $(SQLITE_CFLAGS)"
+	@echo "SQLITE_LIBS = $(SQLITE_LIBS)"
