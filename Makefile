@@ -36,6 +36,7 @@ CORE_HEADERS := \
 	include/mt/errors.hpp \
 	include/mt/query.hpp \
 	include/mt/collection.hpp \
+	include/mt/schema.hpp \
 	include/mt/types.hpp \
 	include/mt/backend.hpp \
 	include/mt/metadata_cache.hpp \

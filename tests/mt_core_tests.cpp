@@ -223,6 +223,140 @@ void test_memory_backend_keeps_existing_schema_snapshot_on_repeat_ensure()
     EXPECT_EQ(snapshot->fields[1].name, std::string("email"));
 }
 
+mt::CollectionSpec user_schema_spec()
+{
+    return mt::CollectionSpec{
+        .logical_name = "schema_users",
+        .schema_version = 1,
+        .key_field = "id",
+        .fields = {
+            mt::FieldSpec::string("id"), mt::FieldSpec::string("email"),
+            mt::FieldSpec::boolean("active").mark_required(false)
+        }
+    };
+}
+
+void test_schema_diff_reports_no_changes_for_matching_schema()
+{
+    auto stored = user_schema_spec();
+    auto requested = user_schema_spec();
+
+    auto diff = mt::diff_schemas(stored, requested);
+
+    EXPECT_TRUE(diff.empty());
+    EXPECT_TRUE(diff.is_compatible());
+}
+
+void test_schema_diff_accepts_compatible_added_fields()
+{
+    auto stored = user_schema_spec();
+    auto requested = user_schema_spec();
+    requested.fields.push_back(mt::FieldSpec::optional("nickname", mt::FieldType::String));
+    requested.fields.push_back(mt::FieldSpec::string("display_name").mark_required(false));
+    requested.fields.push_back(
+        mt::FieldSpec::int64("login_count").with_default(mt::Json(std::int64_t{0}))
+    );
+
+    auto diff = mt::diff_schemas(stored, requested);
+
+    EXPECT_TRUE(diff.is_compatible());
+    EXPECT_EQ(diff.compatible_changes.size(), std::size_t{3});
+    EXPECT_TRUE(diff.incompatible_changes.empty());
+    EXPECT_EQ(diff.compatible_changes[0].path, std::string("$.nickname"));
+}
+
+void test_schema_diff_rejects_required_added_field_without_default()
+{
+    auto stored = user_schema_spec();
+    auto requested = user_schema_spec();
+    requested.fields.push_back(mt::FieldSpec::string("name"));
+
+    auto diff = mt::diff_schemas(stored, requested);
+
+    EXPECT_FALSE(diff.is_compatible());
+    EXPECT_EQ(diff.incompatible_changes.size(), std::size_t{1});
+    EXPECT_EQ(diff.incompatible_changes[0].kind, mt::SchemaChangeKind::AddField);
+    EXPECT_EQ(diff.incompatible_changes[0].path, std::string("$.name"));
+}
+
+void test_schema_diff_rejects_removed_field()
+{
+    auto stored = user_schema_spec();
+    auto requested = user_schema_spec();
+    requested.fields.erase(requested.fields.begin() + 1);
+
+    auto diff = mt::diff_schemas(stored, requested);
+
+    EXPECT_FALSE(diff.is_compatible());
+    EXPECT_EQ(diff.incompatible_changes[0].kind, mt::SchemaChangeKind::RemoveField);
+    EXPECT_EQ(diff.incompatible_changes[0].path, std::string("$.email"));
+}
+
+void test_schema_diff_rejects_key_field_change()
+{
+    auto stored = user_schema_spec();
+    auto requested = user_schema_spec();
+    requested.key_field = "email";
+
+    auto diff = mt::diff_schemas(stored, requested);
+
+    EXPECT_FALSE(diff.is_compatible());
+    EXPECT_EQ(diff.incompatible_changes[0].kind, mt::SchemaChangeKind::ChangeKeyField);
+    EXPECT_EQ(diff.incompatible_changes[0].path, std::string("$"));
+}
+
+void test_schema_diff_rejects_field_type_change()
+{
+    auto stored = user_schema_spec();
+    auto requested = user_schema_spec();
+    requested.fields[1] = mt::FieldSpec::int64("email");
+
+    auto diff = mt::diff_schemas(stored, requested);
+
+    EXPECT_FALSE(diff.is_compatible());
+    EXPECT_EQ(diff.incompatible_changes[0].kind, mt::SchemaChangeKind::ChangeFieldType);
+    EXPECT_EQ(diff.incompatible_changes[0].path, std::string("$.email"));
+}
+
+void test_schema_diff_rejects_array_value_type_change()
+{
+    auto stored = user_schema_spec();
+    stored.fields.push_back(mt::FieldSpec::array("tags", mt::FieldType::String));
+    auto requested = stored;
+    requested.fields.back() = mt::FieldSpec::array("tags", mt::FieldType::Int64);
+
+    auto diff = mt::diff_schemas(stored, requested);
+
+    EXPECT_FALSE(diff.is_compatible());
+    EXPECT_EQ(diff.incompatible_changes[0].kind, mt::SchemaChangeKind::ChangeValueType);
+    EXPECT_EQ(diff.incompatible_changes[0].path, std::string("$.tags"));
+}
+
+void test_schema_diff_reports_nested_object_changes()
+{
+    auto stored = user_schema_spec();
+    stored.fields.push_back(
+        mt::FieldSpec::object(
+            "address", {mt::FieldSpec::string("city"), mt::FieldSpec::string("postal_code")}
+        )
+    );
+    auto requested = user_schema_spec();
+    requested.fields.push_back(
+        mt::FieldSpec::object(
+            "address",
+            {mt::FieldSpec::string("city"), mt::FieldSpec::string("unit").mark_required(false)}
+        )
+    );
+
+    auto diff = mt::diff_schemas(stored, requested);
+
+    EXPECT_FALSE(diff.is_compatible());
+    EXPECT_EQ(diff.incompatible_changes[0].kind, mt::SchemaChangeKind::RemoveField);
+    EXPECT_EQ(diff.incompatible_changes[0].path, std::string("$.address.postal_code"));
+    EXPECT_EQ(diff.compatible_changes[0].kind, mt::SchemaChangeKind::AddField);
+    EXPECT_EQ(diff.compatible_changes[0].path, std::string("$.address.unit"));
+}
+
 void expect_skeleton_capabilities(const mt::BackendCapabilities& capabilities)
 {
     EXPECT_FALSE(capabilities.query.key_prefix);
@@ -1191,6 +1325,14 @@ int main()
     test_memory_backend_reports_capabilities();
     test_memory_backend_stores_schema_snapshot_on_create();
     test_memory_backend_keeps_existing_schema_snapshot_on_repeat_ensure();
+    test_schema_diff_reports_no_changes_for_matching_schema();
+    test_schema_diff_accepts_compatible_added_fields();
+    test_schema_diff_rejects_required_added_field_without_default();
+    test_schema_diff_rejects_removed_field();
+    test_schema_diff_rejects_key_field_change();
+    test_schema_diff_rejects_field_type_change();
+    test_schema_diff_rejects_array_value_type_change();
+    test_schema_diff_reports_nested_object_changes();
     test_sqlite_backend_skeleton_reports_no_capabilities();
     test_postgres_backend_skeleton_reports_no_capabilities();
     test_sqlite_backend_skeleton_rejects_operations();

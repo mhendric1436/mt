@@ -17,6 +17,7 @@
 #include "mt/json.hpp"
 #include "mt/metadata_cache.hpp"
 #include "mt/query.hpp"
+#include "mt/schema.hpp"
 #include "mt/table.hpp"
 #include "mt/transaction.hpp"
 #include "mt/types.hpp"
