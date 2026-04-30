@@ -976,20 +976,115 @@ class SqliteSession final : public IBackendSession
     }
 
     QueryResultEnvelope list_snapshot(
-        CollectionId,
-        const ListOptions&,
-        Version
+        CollectionId collection,
+        const ListOptions& options,
+        Version version
     ) override
     {
-        throw BackendError("sqlite snapshot lists are not implemented");
+        require_backend_tx();
+
+        auto sql = std::string(
+            "SELECT h.document_key, h.version, h.deleted, h.value_hash, h.value_json "
+            "FROM mt_history h "
+            "WHERE h.collection_id = ? "
+            "AND h.version = ("
+            "SELECT MAX(h2.version) FROM mt_history h2 "
+            "WHERE h2.collection_id = h.collection_id "
+            "AND h2.document_key = h.document_key "
+            "AND h2.version <= ?"
+            ") "
+        );
+        if (options.after_key)
+        {
+            sql += "AND h.document_key > ? ";
+        }
+        sql += "ORDER BY h.document_key ";
+        if (options.limit)
+        {
+            sql += "LIMIT ?";
+        }
+
+        detail::Statement statement{connection_->get(), sql};
+        auto index = 1;
+        statement.bind_int64(index++, collection);
+        statement.bind_int64(index++, version);
+        if (options.after_key)
+        {
+            statement.bind_text(index++, *options.after_key);
+        }
+        if (options.limit)
+        {
+            statement.bind_int64(index++, static_cast<std::int64_t>(*options.limit));
+        }
+
+        QueryResultEnvelope result;
+        while (statement.step())
+        {
+            auto deleted = statement.column_int64(2) != 0;
+            result.rows.push_back(
+                DocumentEnvelope{
+                    .collection = collection,
+                    .key = statement.column_text(0),
+                    .version = static_cast<Version>(statement.column_int64(1)),
+                    .deleted = deleted,
+                    .value_hash = hash_from_text(statement.column_text(3)),
+                    .value = deleted ? Json::null() : parse_stored_json(statement.column_text(4))
+                }
+            );
+        }
+
+        return result;
     }
 
     QueryMetadataResult list_current_metadata(
-        CollectionId,
-        const ListOptions&
+        CollectionId collection,
+        const ListOptions& options
     ) override
     {
-        throw BackendError("sqlite current metadata lists are not implemented");
+        require_backend_tx();
+
+        auto sql = std::string(
+            "SELECT document_key, version, deleted, value_hash "
+            "FROM mt_current "
+            "WHERE collection_id = ? "
+        );
+        if (options.after_key)
+        {
+            sql += "AND document_key > ? ";
+        }
+        sql += "ORDER BY document_key ";
+        if (options.limit)
+        {
+            sql += "LIMIT ?";
+        }
+
+        detail::Statement statement{connection_->get(), sql};
+        auto index = 1;
+        statement.bind_int64(index++, collection);
+        if (options.after_key)
+        {
+            statement.bind_text(index++, *options.after_key);
+        }
+        if (options.limit)
+        {
+            statement.bind_int64(index++, static_cast<std::int64_t>(*options.limit));
+        }
+
+        QueryMetadataResult result;
+        while (statement.step())
+        {
+            result.rows.push_back(
+                DocumentMetadata{
+                    .collection = collection,
+                    .key = statement.column_text(0),
+                    .version = static_cast<Version>(statement.column_int64(1)),
+                    .deleted = statement.column_int64(2) != 0,
+                    .value_hash = hash_from_text(statement.column_text(3))
+                }
+            );
+        }
+
+        return result;
     }
 
     void insert_history(
