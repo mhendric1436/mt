@@ -123,23 +123,20 @@ void test_sqlite_backend_bootstrap_creates_private_metadata()
 
     auto connection = mt::backends::sqlite::detail::Connection::open(path.string());
     mt::backends::sqlite::detail::Statement tables{
-        connection.get(), "SELECT COUNT(*) FROM sqlite_master "
-                          "WHERE type = 'table' "
-                          "AND name IN ("
-                          "'mt_meta', 'mt_clock', 'mt_collections', "
-                          "'mt_active_transactions', 'mt_history', 'mt_current')"
+        connection.get(), mt::backends::sqlite::detail::PrivateSchemaSql::count_private_tables()
     };
     EXPECT_TRUE(tables.step());
     EXPECT_EQ(tables.column_int64(0), std::int64_t{6});
 
     mt::backends::sqlite::detail::Statement metadata{
-        connection.get(), "SELECT value FROM mt_meta WHERE key = 'metadata_schema_version'"
+        connection.get(),
+        mt::backends::sqlite::detail::PrivateSchemaSql::select_metadata_schema_version()
     };
     EXPECT_TRUE(metadata.step());
     EXPECT_EQ(metadata.column_int64(0), std::int64_t{7});
 
     mt::backends::sqlite::detail::Statement clock{
-        connection.get(), "SELECT version, next_tx_id FROM mt_clock WHERE id = 1"
+        connection.get(), mt::backends::sqlite::detail::PrivateSchemaSql::select_clock_row()
     };
     EXPECT_TRUE(clock.step());
     EXPECT_EQ(clock.column_int64(0), std::int64_t{0});
@@ -373,7 +370,8 @@ void test_sqlite_backend_active_transaction_metadata_registers_and_cleans_up()
     {
         auto connection = mt::backends::sqlite::detail::Connection::open(path.string());
         mt::backends::sqlite::detail::Statement count{
-            connection.get(), "SELECT COUNT(*) FROM mt_active_transactions"
+            connection.get(),
+            mt::backends::sqlite::detail::PrivateSchemaSql::count_active_transactions()
         };
         EXPECT_TRUE(count.step());
         EXPECT_EQ(count.column_int64(0), std::int64_t{1});
@@ -389,7 +387,8 @@ void test_sqlite_backend_active_transaction_metadata_registers_and_cleans_up()
     {
         auto connection = mt::backends::sqlite::detail::Connection::open(path.string());
         mt::backends::sqlite::detail::Statement count{
-            connection.get(), "SELECT COUNT(*) FROM mt_active_transactions"
+            connection.get(),
+            mt::backends::sqlite::detail::PrivateSchemaSql::count_active_transactions()
         };
         EXPECT_TRUE(count.step());
         EXPECT_EQ(count.column_int64(0), std::int64_t{0});
@@ -427,8 +426,8 @@ void test_sqlite_backend_document_writes_insert_history_and_current()
 
     auto connection = mt::backends::sqlite::detail::Connection::open(path.string());
     mt::backends::sqlite::detail::Statement history{
-        connection.get(), "SELECT version, deleted, value_hash, value_json FROM mt_history "
-                          "WHERE collection_id = ? AND document_key = ?"
+        connection.get(),
+        mt::backends::sqlite::detail::PrivateSchemaSql::select_history_row_by_collection_key()
     };
     history.bind_int64(1, descriptor.id);
     history.bind_text(2, "user:1");
@@ -439,8 +438,8 @@ void test_sqlite_backend_document_writes_insert_history_and_current()
     EXPECT_EQ(history.column_text(3), std::string("{\"email\":\"a@example.com\"}"));
 
     mt::backends::sqlite::detail::Statement current{
-        connection.get(), "SELECT version, deleted, value_hash, value_json FROM mt_current "
-                          "WHERE collection_id = ? AND document_key = ?"
+        connection.get(),
+        mt::backends::sqlite::detail::PrivateSchemaSql::select_current_row_by_collection_key()
     };
     current.bind_int64(1, descriptor.id);
     current.bind_text(2, "user:1");
@@ -476,8 +475,8 @@ void test_sqlite_backend_document_writes_store_delete_tombstone()
 
     auto connection = mt::backends::sqlite::detail::Connection::open(path.string());
     mt::backends::sqlite::detail::Statement current{
-        connection.get(), "SELECT version, deleted, value_hash, value_json FROM mt_current "
-                          "WHERE collection_id = ? AND document_key = ?"
+        connection.get(),
+        mt::backends::sqlite::detail::PrivateSchemaSql::select_current_row_by_collection_key()
     };
     current.bind_int64(1, descriptor.id);
     current.bind_text(2, "user:1");
@@ -514,7 +513,7 @@ void test_sqlite_backend_document_writes_rollback_on_abort()
 
     auto connection = mt::backends::sqlite::detail::Connection::open(path.string());
     mt::backends::sqlite::detail::Statement count{
-        connection.get(), "SELECT COUNT(*) FROM mt_history"
+        connection.get(), mt::backends::sqlite::detail::PrivateSchemaSql::count_history_rows()
     };
     EXPECT_TRUE(count.step());
     EXPECT_EQ(count.column_int64(0), std::int64_t{0});

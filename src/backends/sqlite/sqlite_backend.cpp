@@ -588,9 +588,7 @@ std::optional<CollectionSpec> load_collection_spec(
 )
 {
     detail::Statement statement{
-        connection.get(),
-        "SELECT logical_name, schema_version, key_field, schema_json, indexes_json "
-        "FROM mt_collections WHERE logical_name = ?"
+        connection.get(), detail::PrivateSchemaSql::select_collection_spec_by_logical_name()
     };
     statement.bind_text(1, logical_name);
     if (!statement.step())
@@ -615,8 +613,7 @@ CollectionDescriptor load_collection_descriptor(
 )
 {
     detail::Statement statement{
-        connection.get(),
-        "SELECT id, logical_name, schema_version FROM mt_collections WHERE logical_name = ?"
+        connection.get(), detail::PrivateSchemaSql::select_collection_descriptor_by_logical_name()
     };
     statement.bind_text(1, logical_name);
     if (!statement.step())
@@ -636,11 +633,7 @@ void insert_collection(
     const CollectionSpec& spec
 )
 {
-    detail::Statement statement{
-        connection.get(), "INSERT INTO mt_collections "
-                          "(logical_name, schema_version, key_field, schema_json, indexes_json) "
-                          "VALUES (?, ?, ?, ?, ?)"
-    };
+    detail::Statement statement{connection.get(), detail::PrivateSchemaSql::insert_collection()};
     statement.bind_text(1, spec.logical_name);
     statement.bind_int64(2, spec.schema_version);
     statement.bind_text(3, spec.key_field);
@@ -654,12 +647,7 @@ void update_collection(
     const CollectionSpec& spec
 )
 {
-    detail::Statement statement{
-        connection.get(),
-        "UPDATE mt_collections "
-        "SET schema_version = ?, key_field = ?, schema_json = ?, indexes_json = ? "
-        "WHERE logical_name = ?"
-    };
+    detail::Statement statement{connection.get(), detail::PrivateSchemaSql::update_collection()};
     statement.bind_int64(1, spec.schema_version);
     statement.bind_text(2, spec.key_field);
     statement.bind_text(3, serialize_fields(spec.fields));
@@ -674,7 +662,7 @@ std::vector<IndexSpec> load_collection_indexes(
 )
 {
     detail::Statement statement{
-        connection.get(), "SELECT indexes_json FROM mt_collections WHERE id = ?"
+        connection.get(), detail::PrivateSchemaSql::select_collection_indexes_by_id()
     };
     statement.bind_int64(1, collection);
     if (!statement.step())
@@ -709,9 +697,7 @@ void check_unique_constraints(
         }
 
         detail::Statement statement{
-            connection.get(), "SELECT document_key, value_json "
-                              "FROM mt_current "
-                              "WHERE collection_id = ? AND deleted = 0 AND document_key <> ?"
+            connection.get(), detail::PrivateSchemaSql::select_current_unique_index_candidates()
         };
         statement.bind_int64(1, collection);
         statement.bind_text(2, write.key);
@@ -738,81 +724,29 @@ void bootstrap_schema(
     const BootstrapSpec& spec
 )
 {
-    connection.execute("PRAGMA foreign_keys = ON");
+    connection.execute(detail::PrivateSchemaSql::enable_foreign_keys());
 
-    connection.execute(
-        "CREATE TABLE IF NOT EXISTS mt_meta ("
-        "key TEXT PRIMARY KEY,"
-        "value INTEGER NOT NULL"
-        ")"
-    );
+    connection.execute(detail::PrivateSchemaSql::create_meta_table());
 
     {
         detail::Statement statement{
-            connection.get(),
-            "INSERT INTO mt_meta (key, value) VALUES ('metadata_schema_version', ?) "
-            "ON CONFLICT(key) DO UPDATE SET value = MAX(value, excluded.value)"
+            connection.get(), detail::PrivateSchemaSql::upsert_metadata_schema_version()
         };
         statement.bind_int64(1, spec.metadata_schema_version);
         statement.step();
     }
 
-    connection.execute(
-        "CREATE TABLE IF NOT EXISTS mt_clock ("
-        "id INTEGER PRIMARY KEY CHECK (id = 1),"
-        "version INTEGER NOT NULL,"
-        "next_tx_id INTEGER NOT NULL"
-        ")"
-    );
-    connection.execute("INSERT OR IGNORE INTO mt_clock (id, version, next_tx_id) VALUES (1, 0, 1)");
+    connection.execute(detail::PrivateSchemaSql::create_clock_table());
+    connection.execute(detail::PrivateSchemaSql::insert_default_clock_row());
 
-    connection.execute(
-        "CREATE TABLE IF NOT EXISTS mt_collections ("
-        "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        "logical_name TEXT NOT NULL UNIQUE,"
-        "schema_version INTEGER NOT NULL,"
-        "key_field TEXT NOT NULL,"
-        "schema_json TEXT NOT NULL,"
-        "indexes_json TEXT NOT NULL"
-        ")"
-    );
+    connection.execute(detail::PrivateSchemaSql::create_collections_table());
 
-    connection.execute(
-        "CREATE TABLE IF NOT EXISTS mt_active_transactions ("
-        "tx_id TEXT PRIMARY KEY,"
-        "start_version INTEGER NOT NULL"
-        ")"
-    );
+    connection.execute(detail::PrivateSchemaSql::create_active_transactions_table());
 
-    connection.execute(
-        "CREATE TABLE IF NOT EXISTS mt_history ("
-        "collection_id INTEGER NOT NULL,"
-        "document_key TEXT NOT NULL,"
-        "version INTEGER NOT NULL,"
-        "deleted INTEGER NOT NULL,"
-        "value_hash TEXT NOT NULL,"
-        "value_json TEXT,"
-        "PRIMARY KEY (collection_id, document_key, version),"
-        "FOREIGN KEY (collection_id) REFERENCES mt_collections(id)"
-        ")"
-    );
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS mt_history_snapshot_idx "
-        "ON mt_history (collection_id, document_key, version)"
-    );
+    connection.execute(detail::PrivateSchemaSql::create_history_table());
+    connection.execute(detail::PrivateSchemaSql::create_history_snapshot_index());
 
-    connection.execute(
-        "CREATE TABLE IF NOT EXISTS mt_current ("
-        "collection_id INTEGER NOT NULL,"
-        "document_key TEXT NOT NULL,"
-        "version INTEGER NOT NULL,"
-        "deleted INTEGER NOT NULL,"
-        "value_hash TEXT NOT NULL,"
-        "value_json TEXT,"
-        "PRIMARY KEY (collection_id, document_key),"
-        "FOREIGN KEY (collection_id) REFERENCES mt_collections(id)"
-        ")"
-    );
+    connection.execute(detail::PrivateSchemaSql::create_current_table());
 }
 
 class SqliteSession final : public IBackendSession
@@ -832,14 +766,14 @@ class SqliteSession final : public IBackendSession
 
         connection_ = detail::Connection::open(path_);
         bootstrap_schema(*connection_, BootstrapSpec{});
-        connection_->execute("BEGIN IMMEDIATE");
+        connection_->execute(detail::PrivateSchemaSql::begin_immediate());
         in_backend_tx_ = true;
     }
 
     void commit_backend_transaction() override
     {
         require_backend_tx();
-        connection_->execute("COMMIT");
+        connection_->execute(detail::PrivateSchemaSql::commit());
         in_backend_tx_ = false;
         clock_locked_ = false;
         connection_.reset();
@@ -849,7 +783,10 @@ class SqliteSession final : public IBackendSession
     {
         if (connection_ && in_backend_tx_)
         {
-            sqlite3_exec(connection_->get(), "ROLLBACK", nullptr, nullptr, nullptr);
+            sqlite3_exec(
+                connection_->get(), detail::PrivateSchemaSql::rollback().c_str(), nullptr, nullptr,
+                nullptr
+            );
         }
         in_backend_tx_ = false;
         clock_locked_ = false;
@@ -883,7 +820,7 @@ class SqliteSession final : public IBackendSession
             throw BackendError("clock must be locked before increment");
         }
 
-        connection_->execute("UPDATE mt_clock SET version = version + 1 WHERE id = 1");
+        connection_->execute(detail::PrivateSchemaSql::increment_clock_version());
         return read_clock_row();
     }
 
@@ -894,7 +831,7 @@ class SqliteSession final : public IBackendSession
         auto tx_number = std::int64_t{0};
         {
             detail::Statement statement{
-                connection_->get(), "SELECT next_tx_id FROM mt_clock WHERE id = 1"
+                connection_->get(), detail::PrivateSchemaSql::select_next_tx_id()
             };
             if (!statement.step())
             {
@@ -903,7 +840,7 @@ class SqliteSession final : public IBackendSession
             tx_number = statement.column_int64(0);
         }
 
-        connection_->execute("UPDATE mt_clock SET next_tx_id = next_tx_id + 1 WHERE id = 1");
+        connection_->execute(detail::PrivateSchemaSql::increment_next_tx_id());
         return "sqlite:" + std::to_string(tx_number);
     }
 
@@ -915,8 +852,7 @@ class SqliteSession final : public IBackendSession
         require_backend_tx();
 
         detail::Statement statement{
-            connection_->get(),
-            "INSERT OR REPLACE INTO mt_active_transactions (tx_id, start_version) VALUES (?, ?)"
+            connection_->get(), detail::PrivateSchemaSql::insert_or_replace_active_transaction()
         };
         statement.bind_text(1, tx_id);
         statement.bind_int64(2, start_version);
@@ -933,7 +869,7 @@ class SqliteSession final : public IBackendSession
             }
 
             detail::Statement statement{
-                connection_->get(), "DELETE FROM mt_active_transactions WHERE tx_id = ?"
+                connection_->get(), detail::PrivateSchemaSql::delete_active_transaction()
             };
             statement.bind_text(1, tx_id);
             statement.step();
@@ -952,10 +888,7 @@ class SqliteSession final : public IBackendSession
         require_backend_tx();
 
         detail::Statement statement{
-            connection_->get(), "SELECT version, deleted, value_hash, value_json "
-                                "FROM mt_history "
-                                "WHERE collection_id = ? AND document_key = ? AND version <= ? "
-                                "ORDER BY version DESC LIMIT 1"
+            connection_->get(), detail::PrivateSchemaSql::select_snapshot_document()
         };
         statement.bind_int64(1, collection);
         statement.bind_text(2, key);
@@ -984,9 +917,7 @@ class SqliteSession final : public IBackendSession
         require_backend_tx();
 
         detail::Statement statement{
-            connection_->get(), "SELECT version, deleted, value_hash "
-                                "FROM mt_current "
-                                "WHERE collection_id = ? AND document_key = ?"
+            connection_->get(), detail::PrivateSchemaSql::select_current_metadata()
         };
         statement.bind_int64(1, collection);
         statement.bind_text(2, key);
@@ -1046,16 +977,8 @@ class SqliteSession final : public IBackendSession
         require_backend_tx();
         validate_supported_query(query);
 
-        auto sql = std::string(
-            "SELECT document_key, version, deleted, value_hash, value_json "
-            "FROM mt_current "
-            "WHERE collection_id = ? "
-        );
-        if (query.after_key)
-        {
-            sql += "AND document_key > ? ";
-        }
-        sql += "ORDER BY document_key";
+        auto sql =
+            detail::PrivateSchemaSql::select_current_query_candidates(query.after_key.has_value());
 
         detail::Statement statement{connection_->get(), sql};
         auto index = 1;
@@ -1106,26 +1029,9 @@ class SqliteSession final : public IBackendSession
     {
         require_backend_tx();
 
-        auto sql = std::string(
-            "SELECT h.document_key, h.version, h.deleted, h.value_hash, h.value_json "
-            "FROM mt_history h "
-            "WHERE h.collection_id = ? "
-            "AND h.version = ("
-            "SELECT MAX(h2.version) FROM mt_history h2 "
-            "WHERE h2.collection_id = h.collection_id "
-            "AND h2.document_key = h.document_key "
-            "AND h2.version <= ?"
-            ") "
+        auto sql = detail::PrivateSchemaSql::select_snapshot_list(
+            options.after_key.has_value(), options.limit.has_value()
         );
-        if (options.after_key)
-        {
-            sql += "AND h.document_key > ? ";
-        }
-        sql += "ORDER BY h.document_key ";
-        if (options.limit)
-        {
-            sql += "LIMIT ?";
-        }
 
         detail::Statement statement{connection_->get(), sql};
         auto index = 1;
@@ -1166,20 +1072,9 @@ class SqliteSession final : public IBackendSession
     {
         require_backend_tx();
 
-        auto sql = std::string(
-            "SELECT document_key, version, deleted, value_hash "
-            "FROM mt_current "
-            "WHERE collection_id = ? "
+        auto sql = detail::PrivateSchemaSql::select_current_metadata_list(
+            options.after_key.has_value(), options.limit.has_value()
         );
-        if (options.after_key)
-        {
-            sql += "AND document_key > ? ";
-        }
-        sql += "ORDER BY document_key ";
-        if (options.limit)
-        {
-            sql += "LIMIT ?";
-        }
 
         detail::Statement statement{connection_->get(), sql};
         auto index = 1;
@@ -1218,12 +1113,7 @@ class SqliteSession final : public IBackendSession
     {
         require_backend_tx();
 
-        detail::Statement statement{
-            connection_->get(),
-            "INSERT INTO mt_history "
-            "(collection_id, document_key, version, deleted, value_hash, value_json) "
-            "VALUES (?, ?, ?, ?, ?, ?)"
-        };
+        detail::Statement statement{connection_->get(), detail::PrivateSchemaSql::insert_history()};
         statement.bind_int64(1, collection);
         statement.bind_text(2, write.key);
         statement.bind_int64(3, commit_version);
@@ -1249,17 +1139,7 @@ class SqliteSession final : public IBackendSession
         require_backend_tx();
         check_unique_constraints(*connection_, collection, write);
 
-        detail::Statement statement{
-            connection_->get(),
-            "INSERT INTO mt_current "
-            "(collection_id, document_key, version, deleted, value_hash, value_json) "
-            "VALUES (?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT(collection_id, document_key) DO UPDATE SET "
-            "version = excluded.version, "
-            "deleted = excluded.deleted, "
-            "value_hash = excluded.value_hash, "
-            "value_json = excluded.value_json"
-        };
+        detail::Statement statement{connection_->get(), detail::PrivateSchemaSql::upsert_current()};
         statement.bind_int64(1, collection);
         statement.bind_text(2, write.key);
         statement.bind_int64(3, commit_version);
@@ -1288,7 +1168,7 @@ class SqliteSession final : public IBackendSession
     Version read_clock_row()
     {
         detail::Statement statement{
-            connection_->get(), "SELECT version FROM mt_clock WHERE id = 1"
+            connection_->get(), detail::PrivateSchemaSql::select_clock_version()
         };
         if (!statement.step())
         {
@@ -1342,7 +1222,7 @@ CollectionDescriptor SqliteBackend::ensure_collection(const CollectionSpec& spec
     auto connection = detail::Connection::open(path_);
     bootstrap_schema(connection, BootstrapSpec{});
 
-    connection.execute("BEGIN IMMEDIATE");
+    connection.execute(detail::PrivateSchemaSql::begin_immediate());
     try
     {
         auto stored = load_collection_spec(connection, spec.logical_name);
@@ -1350,7 +1230,7 @@ CollectionDescriptor SqliteBackend::ensure_collection(const CollectionSpec& spec
         {
             insert_collection(connection, spec);
             auto descriptor = load_collection_descriptor(connection, spec.logical_name);
-            connection.execute("COMMIT");
+            connection.execute(detail::PrivateSchemaSql::commit());
             return descriptor;
         }
 
@@ -1366,12 +1246,15 @@ CollectionDescriptor SqliteBackend::ensure_collection(const CollectionSpec& spec
 
         update_collection(connection, spec);
         auto descriptor = load_collection_descriptor(connection, spec.logical_name);
-        connection.execute("COMMIT");
+        connection.execute(detail::PrivateSchemaSql::commit());
         return descriptor;
     }
     catch (...)
     {
-        sqlite3_exec(connection.get(), "ROLLBACK", nullptr, nullptr, nullptr);
+        sqlite3_exec(
+            connection.get(), detail::PrivateSchemaSql::rollback().c_str(), nullptr, nullptr,
+            nullptr
+        );
         throw;
     }
 }
