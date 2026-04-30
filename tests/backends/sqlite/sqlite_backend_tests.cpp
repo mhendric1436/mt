@@ -43,11 +43,10 @@ void test_sqlite_backend_skeleton_reports_no_capabilities()
     EXPECT_FALSE(capabilities.schema.migrations);
 }
 
-void test_sqlite_backend_skeleton_rejects_operations()
+void test_sqlite_backend_rejects_unimplemented_operations()
 {
     mt::backends::sqlite::SqliteBackend backend;
 
-    EXPECT_THROW_AS(backend.open_session(), mt::BackendError);
     EXPECT_THROW_AS(backend.get_collection("users"), mt::BackendError);
 }
 
@@ -175,6 +174,61 @@ void test_sqlite_backend_rejects_incompatible_schema_change()
     std::filesystem::remove(path);
 }
 
+void test_sqlite_backend_session_commits_and_aborts_transactions()
+{
+    auto path = sqlite_test_path("mt_sqlite_session_lifecycle_test.sqlite");
+    mt::backends::sqlite::SqliteBackend backend{path.string()};
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        session->commit_backend_transaction();
+    }
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        session->abort_backend_transaction();
+        session->abort_backend_transaction();
+    }
+
+    std::filesystem::remove(path);
+}
+
+void test_sqlite_backend_session_rejects_invalid_lifecycle()
+{
+    auto path = sqlite_test_path("mt_sqlite_session_invalid_lifecycle_test.sqlite");
+    mt::backends::sqlite::SqliteBackend backend{path.string()};
+
+    {
+        auto session = backend.open_session();
+        EXPECT_THROW_AS(session->commit_backend_transaction(), mt::BackendError);
+    }
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        EXPECT_THROW_AS(session->begin_backend_transaction(), mt::BackendError);
+        session->abort_backend_transaction();
+    }
+
+    std::filesystem::remove(path);
+}
+
+void test_sqlite_backend_session_reports_unimplemented_operations()
+{
+    auto path = sqlite_test_path("mt_sqlite_session_unimplemented_test.sqlite");
+    mt::backends::sqlite::SqliteBackend backend{path.string()};
+    auto session = backend.open_session();
+
+    session->begin_backend_transaction();
+    EXPECT_THROW_AS(session->read_clock(), mt::BackendError);
+    EXPECT_THROW_AS(session->create_transaction_id(), mt::BackendError);
+    session->abort_backend_transaction();
+
+    std::filesystem::remove(path);
+}
+
 void test_sqlite_detail_connection_executes_sql()
 {
     auto connection = mt::backends::sqlite::detail::Connection::open_memory();
@@ -243,12 +297,15 @@ void test_sqlite_detail_statement_binds_text_and_null()
 int main()
 {
     test_sqlite_backend_skeleton_reports_no_capabilities();
-    test_sqlite_backend_skeleton_rejects_operations();
+    test_sqlite_backend_rejects_unimplemented_operations();
     test_sqlite_backend_bootstrap_creates_private_metadata();
     test_sqlite_backend_ensure_collection_creates_and_gets_descriptor();
     test_sqlite_backend_ensure_collection_persists_across_instances();
     test_sqlite_backend_accepts_compatible_schema_change();
     test_sqlite_backend_rejects_incompatible_schema_change();
+    test_sqlite_backend_session_commits_and_aborts_transactions();
+    test_sqlite_backend_session_rejects_invalid_lifecycle();
+    test_sqlite_backend_session_reports_unimplemented_operations();
     test_sqlite_detail_connection_executes_sql();
     test_sqlite_detail_statement_reuses_bindings_after_reset();
     test_sqlite_detail_statement_binds_text_and_null();

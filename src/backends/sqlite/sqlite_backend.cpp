@@ -11,6 +11,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 // -----------------------------------------------------------------------------
@@ -423,6 +424,159 @@ void bootstrap_schema(
     );
 }
 
+class SqliteSession final : public IBackendSession
+{
+  public:
+    explicit SqliteSession(std::string path)
+        : path_(std::move(path))
+    {
+    }
+
+    void begin_backend_transaction() override
+    {
+        if (in_backend_tx_)
+        {
+            throw BackendError("sqlite backend transaction is already open");
+        }
+
+        connection_ = detail::Connection::open(path_);
+        bootstrap_schema(*connection_, BootstrapSpec{});
+        connection_->execute("BEGIN IMMEDIATE");
+        in_backend_tx_ = true;
+    }
+
+    void commit_backend_transaction() override
+    {
+        require_backend_tx();
+        connection_->execute("COMMIT");
+        in_backend_tx_ = false;
+        connection_.reset();
+    }
+
+    void abort_backend_transaction() noexcept override
+    {
+        if (connection_ && in_backend_tx_)
+        {
+            sqlite3_exec(connection_->get(), "ROLLBACK", nullptr, nullptr, nullptr);
+        }
+        in_backend_tx_ = false;
+        connection_.reset();
+    }
+
+    Version read_clock() override
+    {
+        throw BackendError("sqlite clock operations are not implemented");
+    }
+
+    Version lock_clock_and_read() override
+    {
+        throw BackendError("sqlite clock operations are not implemented");
+    }
+
+    Version increment_clock_and_return() override
+    {
+        throw BackendError("sqlite clock operations are not implemented");
+    }
+
+    TxId create_transaction_id() override
+    {
+        throw BackendError("sqlite transaction IDs are not implemented");
+    }
+
+    void register_active_transaction(
+        TxId,
+        Version
+    ) override
+    {
+        throw BackendError("sqlite active transaction metadata is not implemented");
+    }
+
+    void unregister_active_transaction(TxId) noexcept override {}
+
+    std::optional<DocumentEnvelope> read_snapshot(
+        CollectionId,
+        std::string_view,
+        Version
+    ) override
+    {
+        throw BackendError("sqlite snapshot reads are not implemented");
+    }
+
+    std::optional<DocumentMetadata> read_current_metadata(
+        CollectionId,
+        std::string_view
+    ) override
+    {
+        throw BackendError("sqlite current metadata reads are not implemented");
+    }
+
+    QueryResultEnvelope query_snapshot(
+        CollectionId,
+        const QuerySpec&,
+        Version
+    ) override
+    {
+        throw BackendError("sqlite snapshot queries are not implemented");
+    }
+
+    QueryMetadataResult query_current_metadata(
+        CollectionId,
+        const QuerySpec&
+    ) override
+    {
+        throw BackendError("sqlite current metadata queries are not implemented");
+    }
+
+    QueryResultEnvelope list_snapshot(
+        CollectionId,
+        const ListOptions&,
+        Version
+    ) override
+    {
+        throw BackendError("sqlite snapshot lists are not implemented");
+    }
+
+    QueryMetadataResult list_current_metadata(
+        CollectionId,
+        const ListOptions&
+    ) override
+    {
+        throw BackendError("sqlite current metadata lists are not implemented");
+    }
+
+    void insert_history(
+        CollectionId,
+        const WriteEnvelope&,
+        Version
+    ) override
+    {
+        throw BackendError("sqlite document writes are not implemented");
+    }
+
+    void upsert_current(
+        CollectionId,
+        const WriteEnvelope&,
+        Version
+    ) override
+    {
+        throw BackendError("sqlite document writes are not implemented");
+    }
+
+  private:
+    void require_backend_tx() const
+    {
+        if (!connection_ || !in_backend_tx_)
+        {
+            throw BackendError("sqlite backend transaction is not open");
+        }
+    }
+
+  private:
+    std::string path_;
+    std::optional<detail::Connection> connection_;
+    bool in_backend_tx_ = false;
+};
+
 } // namespace
 
 SqliteBackend::SqliteBackend()
@@ -444,7 +598,7 @@ BackendCapabilities SqliteBackend::capabilities() const
 
 std::unique_ptr<IBackendSession> SqliteBackend::open_session()
 {
-    throw BackendError("sqlite backend sessions are not implemented");
+    return std::make_unique<SqliteSession>(path_);
 }
 
 void SqliteBackend::bootstrap(const BootstrapSpec& spec)
