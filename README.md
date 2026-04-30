@@ -118,12 +118,18 @@ examples/schemas/user.mt.json
 test against it. Generated files under `build/` are build artifacts and are not intended
 to be committed.
 
-Supported field types in the first generator version:
+Supported field types:
 
 - `string`
 - `bool`
 - `int64`
 - `double`
+- `optional`
+- `array`
+- `object`
+
+Generated mappings expose table name, schema version, key field, field metadata, and
+index metadata. Backends use that metadata to track accepted schema snapshots.
 
 ## Quick Example
 
@@ -305,6 +311,35 @@ cross-process consistency.
 
 SQLite and PostgreSQL currently have dependency-free skeleton headers. Future concrete
 implementations should remain optional so core users do not need those dependencies.
+
+## Schema Evolution
+
+`mt` treats generated schema metadata as the source for automatic, backwards-compatible
+schema evolution. Users do not write separate migration files for simple compatible
+changes. When a table is opened, the backend compares the requested schema with the last
+accepted schema snapshot for that collection.
+
+Accepted changes currently include:
+
+- adding an `optional` field
+- adding a non-required field
+- adding a field with a default value
+- applying those same additions inside nested object fields
+
+Rejected changes currently include:
+
+- changing the key field
+- removing a field
+- changing a field type
+- changing an `optional` or `array` value type
+- changing a default value
+- making an existing non-required field required
+- adding a required field without a default
+
+The memory backend stores accepted schema snapshots in process-local state and enforces
+the same compatibility rules. Durable backends should store snapshots in private backend
+metadata tables and apply the compare/update atomically. See `docs/backend_contract.md`
+and `docs/backend_implementation.md` for backend requirements.
 
 ## Documentation Diagrams
 
