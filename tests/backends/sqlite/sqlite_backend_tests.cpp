@@ -38,8 +38,8 @@ void test_sqlite_backend_reports_capabilities()
     EXPECT_TRUE(capabilities.query.order_by_key);
     EXPECT_FALSE(capabilities.query.custom_ordering);
 
-    EXPECT_FALSE(capabilities.schema.json_indexes);
-    EXPECT_FALSE(capabilities.schema.unique_indexes);
+    EXPECT_TRUE(capabilities.schema.json_indexes);
+    EXPECT_TRUE(capabilities.schema.unique_indexes);
     EXPECT_FALSE(capabilities.schema.migrations);
 }
 
@@ -721,7 +721,7 @@ void test_sqlite_backend_query_snapshot_supports_key_prefix_and_json_equals()
         .collection = descriptor.id,
         .key = "other:1",
         .kind = mt::WriteKind::Put,
-        .value = mt::Json::object({{"email", "match@example.com"}, {"active", true}}),
+        .value = mt::Json::object({{"email", "other@example.com"}, {"active", true}}),
         .value_hash = test_hash(0x93)
     };
 
@@ -740,7 +740,7 @@ void test_sqlite_backend_query_snapshot_supports_key_prefix_and_json_equals()
     auto query = mt::QuerySpec::key_prefix("user:");
     query.predicates.push_back(
         mt::QueryPredicate{
-            .op = mt::QueryOp::JsonEquals, .path = "$.email", .value = mt::Json("match@example.com")
+            .op = mt::QueryOp::JsonEquals, .path = "$.active", .value = mt::Json(true)
         }
     );
 
@@ -752,7 +752,7 @@ void test_sqlite_backend_query_snapshot_supports_key_prefix_and_json_equals()
 
         EXPECT_EQ(rows.size(), std::size_t{1});
         EXPECT_EQ(rows[0].key, std::string("user:1"));
-        EXPECT_EQ(rows[0].value["email"].as_string(), std::string("match@example.com"));
+        EXPECT_TRUE(rows[0].value["active"].as_bool());
     }
 
     std::filesystem::remove(path);
@@ -768,14 +768,14 @@ void test_sqlite_backend_query_current_metadata_filters_and_limits()
         .collection = descriptor.id,
         .key = "user:1",
         .kind = mt::WriteKind::Put,
-        .value = mt::Json::object({{"email", "match@example.com"}}),
+        .value = mt::Json::object({{"email", "one@example.com"}, {"active", true}}),
         .value_hash = test_hash(0xA1)
     };
     mt::WriteEnvelope user_2{
         .collection = descriptor.id,
         .key = "user:2",
         .kind = mt::WriteKind::Put,
-        .value = mt::Json::object({{"email", "match@example.com"}}),
+        .value = mt::Json::object({{"email", "two@example.com"}, {"active", true}}),
         .value_hash = test_hash(0xA2)
     };
     mt::WriteEnvelope deleted{
@@ -797,7 +797,7 @@ void test_sqlite_backend_query_current_metadata_filters_and_limits()
         session->commit_backend_transaction();
     }
 
-    auto query = mt::QuerySpec::where_json_eq("$.email", "match@example.com");
+    auto query = mt::QuerySpec::where_json_eq("$.active", true);
     query.limit = 1;
     query.after_key = "user:1";
 
@@ -811,6 +811,90 @@ void test_sqlite_backend_query_current_metadata_filters_and_limits()
         EXPECT_EQ(rows[0].key, std::string("user:2"));
         EXPECT_FALSE(rows[0].deleted);
         EXPECT_EQ(rows[0].value_hash, test_hash(0xA2));
+    }
+
+    std::filesystem::remove(path);
+}
+
+void test_sqlite_backend_enforces_unique_indexes()
+{
+    auto path = sqlite_test_path("mt_sqlite_unique_index_test.sqlite");
+    mt::backends::sqlite::SqliteBackend backend{path.string()};
+    auto descriptor = backend.ensure_collection(sqlite_user_schema(1));
+
+    mt::WriteEnvelope first{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Put,
+        .value = mt::Json::object({{"email", "same@example.com"}}),
+        .value_hash = test_hash(0xB1)
+    };
+    mt::WriteEnvelope conflict{
+        .collection = descriptor.id,
+        .key = "user:2",
+        .kind = mt::WriteKind::Put,
+        .value = mt::Json::object({{"email", "same@example.com"}}),
+        .value_hash = test_hash(0xB2)
+    };
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        session->insert_history(descriptor.id, first, 1);
+        session->upsert_current(descriptor.id, first, 1);
+        EXPECT_THROW_AS(session->upsert_current(descriptor.id, conflict, 2), mt::BackendError);
+        session->abort_backend_transaction();
+    }
+
+    std::filesystem::remove(path);
+}
+
+void test_sqlite_backend_unique_indexes_allow_same_key_update_missing_path_and_delete()
+{
+    auto path = sqlite_test_path("mt_sqlite_unique_index_allow_test.sqlite");
+    mt::backends::sqlite::SqliteBackend backend{path.string()};
+    auto descriptor = backend.ensure_collection(sqlite_user_schema(1));
+
+    mt::WriteEnvelope first{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Put,
+        .value = mt::Json::object({{"email", "same@example.com"}}),
+        .value_hash = test_hash(0xC1)
+    };
+    mt::WriteEnvelope same_key{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Put,
+        .value = mt::Json::object({{"email", "same@example.com"}, {"active", false}}),
+        .value_hash = test_hash(0xC2)
+    };
+    mt::WriteEnvelope missing_path{
+        .collection = descriptor.id,
+        .key = "user:2",
+        .kind = mt::WriteKind::Put,
+        .value = mt::Json::object({{"active", true}}),
+        .value_hash = test_hash(0xC3)
+    };
+    mt::WriteEnvelope delete_write{
+        .collection = descriptor.id,
+        .key = "user:3",
+        .kind = mt::WriteKind::Delete,
+        .value_hash = test_hash(0xC4)
+    };
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        session->insert_history(descriptor.id, first, 1);
+        session->upsert_current(descriptor.id, first, 1);
+        session->insert_history(descriptor.id, same_key, 2);
+        session->upsert_current(descriptor.id, same_key, 2);
+        session->insert_history(descriptor.id, missing_path, 3);
+        session->upsert_current(descriptor.id, missing_path, 3);
+        session->insert_history(descriptor.id, delete_write, 4);
+        session->upsert_current(descriptor.id, delete_write, 4);
+        session->commit_backend_transaction();
     }
 
     std::filesystem::remove(path);
@@ -906,6 +990,8 @@ int main()
     test_sqlite_backend_list_current_metadata_orders_and_paginates();
     test_sqlite_backend_query_snapshot_supports_key_prefix_and_json_equals();
     test_sqlite_backend_query_current_metadata_filters_and_limits();
+    test_sqlite_backend_enforces_unique_indexes();
+    test_sqlite_backend_unique_indexes_allow_same_key_update_missing_path_and_delete();
     test_sqlite_detail_connection_executes_sql();
     test_sqlite_detail_statement_reuses_bindings_after_reset();
     test_sqlite_detail_statement_binds_text_and_null();

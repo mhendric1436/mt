@@ -703,6 +703,71 @@ void update_collection(
     statement.step();
 }
 
+std::vector<IndexSpec> load_collection_indexes(
+    detail::Connection& connection,
+    CollectionId collection
+)
+{
+    detail::Statement statement{
+        connection.get(), "SELECT indexes_json FROM mt_collections WHERE id = ?"
+    };
+    statement.bind_int64(1, collection);
+    if (!statement.step())
+    {
+        throw BackendError("sqlite collection not found");
+    }
+    return deserialize_indexes(statement.column_text(0));
+}
+
+void check_unique_constraints(
+    detail::Connection& connection,
+    CollectionId collection,
+    const WriteEnvelope& write
+)
+{
+    if (write.kind == WriteKind::Delete)
+    {
+        return;
+    }
+
+    for (const auto& index : load_collection_indexes(connection, collection))
+    {
+        if (!index.unique)
+        {
+            continue;
+        }
+
+        auto write_value = json_path_value(write.value, index.json_path);
+        if (!write_value)
+        {
+            continue;
+        }
+
+        detail::Statement statement{
+            connection.get(), "SELECT document_key, value_json "
+                              "FROM mt_current "
+                              "WHERE collection_id = ? AND deleted = 0 AND document_key <> ?"
+        };
+        statement.bind_int64(1, collection);
+        statement.bind_text(2, write.key);
+
+        while (statement.step())
+        {
+            if (statement.column_is_null(1))
+            {
+                continue;
+            }
+
+            auto current_value =
+                json_path_value(parse_stored_json(statement.column_text(1)), index.json_path);
+            if (current_value && *current_value == *write_value)
+            {
+                throw BackendError("sqlite backend unique index constraint violation");
+            }
+        }
+    }
+}
+
 void bootstrap_schema(
     detail::Connection& connection,
     const BootstrapSpec& spec
@@ -1217,6 +1282,7 @@ class SqliteSession final : public IBackendSession
     ) override
     {
         require_backend_tx();
+        check_unique_constraints(*connection_, collection, write);
 
         detail::Statement statement{
             connection_->get(),
@@ -1290,6 +1356,8 @@ BackendCapabilities SqliteBackend::capabilities() const
     auto capabilities = BackendCapabilities{};
     capabilities.query.key_prefix = true;
     capabilities.query.json_equals = true;
+    capabilities.schema.json_indexes = true;
+    capabilities.schema.unique_indexes = true;
     return capabilities;
 }
 
