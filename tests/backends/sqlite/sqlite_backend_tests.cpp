@@ -222,7 +222,9 @@ void test_sqlite_backend_session_reports_unimplemented_operations()
     auto session = backend.open_session();
 
     session->begin_backend_transaction();
-    EXPECT_THROW_AS(session->read_snapshot(1, "missing", 0), mt::BackendError);
+    EXPECT_THROW_AS(
+        session->query_snapshot(1, mt::QuerySpec::key_prefix("user:"), 0), mt::BackendError
+    );
     session->abort_backend_transaction();
 
     std::filesystem::remove(path);
@@ -454,6 +456,107 @@ void test_sqlite_backend_document_writes_rollback_on_abort()
     std::filesystem::remove(path);
 }
 
+void test_sqlite_backend_point_reads_return_snapshot_versions()
+{
+    auto path = sqlite_test_path("mt_sqlite_point_read_test.sqlite");
+    mt::backends::sqlite::SqliteBackend backend{path.string()};
+    auto descriptor = backend.ensure_collection(sqlite_user_schema(1));
+
+    mt::WriteEnvelope first{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Put,
+        .value = mt::Json::object({{"email", "old@example.com"}}),
+        .value_hash = test_hash(0x41)
+    };
+    mt::WriteEnvelope second{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Put,
+        .value = mt::Json::object({{"email", "new@example.com"}}),
+        .value_hash = test_hash(0x51)
+    };
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        session->insert_history(descriptor.id, first, 1);
+        session->upsert_current(descriptor.id, first, 1);
+        session->insert_history(descriptor.id, second, 2);
+        session->upsert_current(descriptor.id, second, 2);
+        session->commit_backend_transaction();
+    }
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        auto missing = session->read_snapshot(descriptor.id, "missing", 2);
+        auto old_doc = session->read_snapshot(descriptor.id, "user:1", 1);
+        auto new_doc = session->read_snapshot(descriptor.id, "user:1", 2);
+        auto current = session->read_current_metadata(descriptor.id, "user:1");
+        session->commit_backend_transaction();
+
+        EXPECT_FALSE(missing.has_value());
+        EXPECT_TRUE(old_doc.has_value());
+        EXPECT_EQ(old_doc->version, mt::Version{1});
+        EXPECT_EQ(old_doc->value["email"].as_string(), std::string("old@example.com"));
+        EXPECT_EQ(old_doc->value_hash, test_hash(0x41));
+
+        EXPECT_TRUE(new_doc.has_value());
+        EXPECT_EQ(new_doc->version, mt::Version{2});
+        EXPECT_EQ(new_doc->value["email"].as_string(), std::string("new@example.com"));
+        EXPECT_EQ(new_doc->value_hash, test_hash(0x51));
+
+        EXPECT_TRUE(current.has_value());
+        EXPECT_EQ(current->version, mt::Version{2});
+        EXPECT_FALSE(current->deleted);
+        EXPECT_EQ(current->value_hash, test_hash(0x51));
+    }
+
+    std::filesystem::remove(path);
+}
+
+void test_sqlite_backend_point_reads_return_tombstones()
+{
+    auto path = sqlite_test_path("mt_sqlite_point_read_tombstone_test.sqlite");
+    mt::backends::sqlite::SqliteBackend backend{path.string()};
+    auto descriptor = backend.ensure_collection(sqlite_user_schema(1));
+
+    mt::WriteEnvelope write{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Delete,
+        .value_hash = test_hash(0x61)
+    };
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        session->insert_history(descriptor.id, write, 3);
+        session->upsert_current(descriptor.id, write, 3);
+        session->commit_backend_transaction();
+    }
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        auto doc = session->read_snapshot(descriptor.id, "user:1", 3);
+        auto current = session->read_current_metadata(descriptor.id, "user:1");
+        session->commit_backend_transaction();
+
+        EXPECT_TRUE(doc.has_value());
+        EXPECT_TRUE(doc->deleted);
+        EXPECT_TRUE(doc->value.is_null());
+        EXPECT_EQ(doc->value_hash, test_hash(0x61));
+
+        EXPECT_TRUE(current.has_value());
+        EXPECT_TRUE(current->deleted);
+        EXPECT_EQ(current->value_hash, test_hash(0x61));
+    }
+
+    std::filesystem::remove(path);
+}
+
 void test_sqlite_detail_connection_executes_sql()
 {
     auto connection = mt::backends::sqlite::detail::Connection::open_memory();
@@ -538,6 +641,8 @@ int main()
     test_sqlite_backend_document_writes_insert_history_and_current();
     test_sqlite_backend_document_writes_store_delete_tombstone();
     test_sqlite_backend_document_writes_rollback_on_abort();
+    test_sqlite_backend_point_reads_return_snapshot_versions();
+    test_sqlite_backend_point_reads_return_tombstones();
     test_sqlite_detail_connection_executes_sql();
     test_sqlite_detail_statement_reuses_bindings_after_reset();
     test_sqlite_detail_statement_binds_text_and_null();
