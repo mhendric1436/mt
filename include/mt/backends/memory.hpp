@@ -39,6 +39,7 @@ struct MemoryVersion
 struct MemoryCollection
 {
     CollectionDescriptor descriptor;
+    CollectionSpec schema;
     std::vector<IndexSpec> indexes;
     std::map<std::string, MemoryVersion> current;
     std::map<std::string, std::vector<MemoryVersion>> history;
@@ -571,6 +572,24 @@ class MemoryBackend final : public IDatabaseBackend
 
     void bootstrap(const BootstrapSpec&) override {}
 
+    std::optional<CollectionSpec> schema_snapshot(std::string_view logical_name) const
+    {
+        std::lock_guard lock(state_->mutex);
+        auto descriptor_it = state_->descriptors_by_name.find(std::string(logical_name));
+        if (descriptor_it == state_->descriptors_by_name.end())
+        {
+            return std::nullopt;
+        }
+
+        auto collection_it = state_->collections.find(descriptor_it->second.id);
+        if (collection_it == state_->collections.end())
+        {
+            return std::nullopt;
+        }
+
+        return collection_it->second.schema;
+    }
+
     CollectionDescriptor ensure_collection(const CollectionSpec& spec) override
     {
         std::lock_guard lock(state_->mutex);
@@ -594,6 +613,7 @@ class MemoryBackend final : public IDatabaseBackend
 
         MemoryCollection collection;
         collection.descriptor = descriptor;
+        collection.schema = spec;
         collection.indexes = spec.indexes;
 
         state_->descriptors_by_name[spec.logical_name] = descriptor;
