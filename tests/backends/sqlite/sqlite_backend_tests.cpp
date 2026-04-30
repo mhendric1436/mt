@@ -330,6 +330,130 @@ void test_sqlite_backend_active_transaction_metadata_registers_and_cleans_up()
     std::filesystem::remove(path);
 }
 
+mt::Hash test_hash(std::uint8_t value)
+{
+    return mt::Hash{.bytes = {value, static_cast<std::uint8_t>(value + 1)}};
+}
+
+void test_sqlite_backend_document_writes_insert_history_and_current()
+{
+    auto path = sqlite_test_path("mt_sqlite_document_write_test.sqlite");
+    mt::backends::sqlite::SqliteBackend backend{path.string()};
+    auto descriptor = backend.ensure_collection(sqlite_user_schema(1));
+
+    mt::WriteEnvelope write{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Put,
+        .value = mt::Json::object({{"email", "a@example.com"}}),
+        .value_hash = test_hash(0x12)
+    };
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        session->insert_history(descriptor.id, write, 7);
+        session->upsert_current(descriptor.id, write, 7);
+        session->commit_backend_transaction();
+    }
+
+    auto connection = mt::backends::sqlite::detail::Connection::open(path.string());
+    mt::backends::sqlite::detail::Statement history{
+        connection.get(), "SELECT version, deleted, value_hash, value_json FROM mt_history "
+                          "WHERE collection_id = ? AND document_key = ?"
+    };
+    history.bind_int64(1, descriptor.id);
+    history.bind_text(2, "user:1");
+    EXPECT_TRUE(history.step());
+    EXPECT_EQ(history.column_int64(0), std::int64_t{7});
+    EXPECT_EQ(history.column_int64(1), std::int64_t{0});
+    EXPECT_EQ(history.column_text(2), std::string("1213"));
+    EXPECT_EQ(history.column_text(3), std::string("{\"email\":\"a@example.com\"}"));
+
+    mt::backends::sqlite::detail::Statement current{
+        connection.get(), "SELECT version, deleted, value_hash, value_json FROM mt_current "
+                          "WHERE collection_id = ? AND document_key = ?"
+    };
+    current.bind_int64(1, descriptor.id);
+    current.bind_text(2, "user:1");
+    EXPECT_TRUE(current.step());
+    EXPECT_EQ(current.column_int64(0), std::int64_t{7});
+    EXPECT_EQ(current.column_int64(1), std::int64_t{0});
+    EXPECT_EQ(current.column_text(2), std::string("1213"));
+    EXPECT_EQ(current.column_text(3), std::string("{\"email\":\"a@example.com\"}"));
+
+    std::filesystem::remove(path);
+}
+
+void test_sqlite_backend_document_writes_store_delete_tombstone()
+{
+    auto path = sqlite_test_path("mt_sqlite_document_delete_test.sqlite");
+    mt::backends::sqlite::SqliteBackend backend{path.string()};
+    auto descriptor = backend.ensure_collection(sqlite_user_schema(1));
+
+    mt::WriteEnvelope write{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Delete,
+        .value_hash = test_hash(0x21)
+    };
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        session->insert_history(descriptor.id, write, 8);
+        session->upsert_current(descriptor.id, write, 8);
+        session->commit_backend_transaction();
+    }
+
+    auto connection = mt::backends::sqlite::detail::Connection::open(path.string());
+    mt::backends::sqlite::detail::Statement current{
+        connection.get(), "SELECT version, deleted, value_hash, value_json FROM mt_current "
+                          "WHERE collection_id = ? AND document_key = ?"
+    };
+    current.bind_int64(1, descriptor.id);
+    current.bind_text(2, "user:1");
+    EXPECT_TRUE(current.step());
+    EXPECT_EQ(current.column_int64(0), std::int64_t{8});
+    EXPECT_EQ(current.column_int64(1), std::int64_t{1});
+    EXPECT_EQ(current.column_text(2), std::string("2122"));
+    EXPECT_TRUE(current.column_is_null(3));
+
+    std::filesystem::remove(path);
+}
+
+void test_sqlite_backend_document_writes_rollback_on_abort()
+{
+    auto path = sqlite_test_path("mt_sqlite_document_abort_test.sqlite");
+    mt::backends::sqlite::SqliteBackend backend{path.string()};
+    auto descriptor = backend.ensure_collection(sqlite_user_schema(1));
+
+    mt::WriteEnvelope write{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Put,
+        .value = mt::Json::object({{"email", "a@example.com"}}),
+        .value_hash = test_hash(0x31)
+    };
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        session->insert_history(descriptor.id, write, 9);
+        session->upsert_current(descriptor.id, write, 9);
+        session->abort_backend_transaction();
+    }
+
+    auto connection = mt::backends::sqlite::detail::Connection::open(path.string());
+    mt::backends::sqlite::detail::Statement count{
+        connection.get(), "SELECT COUNT(*) FROM mt_history"
+    };
+    EXPECT_TRUE(count.step());
+    EXPECT_EQ(count.column_int64(0), std::int64_t{0});
+
+    std::filesystem::remove(path);
+}
+
 void test_sqlite_detail_connection_executes_sql()
 {
     auto connection = mt::backends::sqlite::detail::Connection::open_memory();
@@ -411,6 +535,9 @@ int main()
     test_sqlite_backend_clock_increment_requires_lock();
     test_sqlite_backend_transaction_ids_are_unique_and_persisted();
     test_sqlite_backend_active_transaction_metadata_registers_and_cleans_up();
+    test_sqlite_backend_document_writes_insert_history_and_current();
+    test_sqlite_backend_document_writes_store_delete_tombstone();
+    test_sqlite_backend_document_writes_rollback_on_abort();
     test_sqlite_detail_connection_executes_sql();
     test_sqlite_detail_statement_reuses_bindings_after_reset();
     test_sqlite_detail_statement_binds_text_and_null();

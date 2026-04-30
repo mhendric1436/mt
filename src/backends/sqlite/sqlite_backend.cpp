@@ -5,6 +5,7 @@
 #include "mt/errors.hpp"
 #include "mt/schema.hpp"
 
+#include <cstdint>
 #include <iomanip>
 #include <memory>
 #include <optional>
@@ -26,6 +27,37 @@ namespace mt::backends::sqlite
 
 namespace
 {
+
+char hex_digit(std::uint8_t value)
+{
+    return static_cast<char>(value < 10 ? '0' + value : 'a' + (value - 10));
+}
+
+std::string hash_to_text(const Hash& hash)
+{
+    std::string out;
+    out.reserve(hash.bytes.size() * 2);
+    for (auto byte : hash.bytes)
+    {
+        out.push_back(hex_digit(static_cast<std::uint8_t>(byte >> 4)));
+        out.push_back(hex_digit(static_cast<std::uint8_t>(byte & 0x0F)));
+    }
+    return out;
+}
+
+bool write_is_deleted(const WriteEnvelope& write)
+{
+    return write.kind == WriteKind::Delete;
+}
+
+std::string write_value_text(const WriteEnvelope& write)
+{
+    if (write_is_deleted(write))
+    {
+        return {};
+    }
+    return write.value.canonical_string();
+}
 
 int field_type_to_int(FieldType type)
 {
@@ -604,21 +636,68 @@ class SqliteSession final : public IBackendSession
     }
 
     void insert_history(
-        CollectionId,
-        const WriteEnvelope&,
-        Version
+        CollectionId collection,
+        const WriteEnvelope& write,
+        Version commit_version
     ) override
     {
-        throw BackendError("sqlite document writes are not implemented");
+        require_backend_tx();
+
+        detail::Statement statement{
+            connection_->get(),
+            "INSERT INTO mt_history "
+            "(collection_id, document_key, version, deleted, value_hash, value_json) "
+            "VALUES (?, ?, ?, ?, ?, ?)"
+        };
+        statement.bind_int64(1, collection);
+        statement.bind_text(2, write.key);
+        statement.bind_int64(3, commit_version);
+        statement.bind_int64(4, write_is_deleted(write) ? 1 : 0);
+        statement.bind_text(5, hash_to_text(write.value_hash));
+        if (write_is_deleted(write))
+        {
+            statement.bind_null(6);
+        }
+        else
+        {
+            statement.bind_text(6, write_value_text(write));
+        }
+        statement.step();
     }
 
     void upsert_current(
-        CollectionId,
-        const WriteEnvelope&,
-        Version
+        CollectionId collection,
+        const WriteEnvelope& write,
+        Version commit_version
     ) override
     {
-        throw BackendError("sqlite document writes are not implemented");
+        require_backend_tx();
+
+        detail::Statement statement{
+            connection_->get(),
+            "INSERT INTO mt_current "
+            "(collection_id, document_key, version, deleted, value_hash, value_json) "
+            "VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(collection_id, document_key) DO UPDATE SET "
+            "version = excluded.version, "
+            "deleted = excluded.deleted, "
+            "value_hash = excluded.value_hash, "
+            "value_json = excluded.value_json"
+        };
+        statement.bind_int64(1, collection);
+        statement.bind_text(2, write.key);
+        statement.bind_int64(3, commit_version);
+        statement.bind_int64(4, write_is_deleted(write) ? 1 : 0);
+        statement.bind_text(5, hash_to_text(write.value_hash));
+        if (write_is_deleted(write))
+        {
+            statement.bind_null(6);
+        }
+        else
+        {
+            statement.bind_text(6, write_value_text(write));
+        }
+        statement.step();
     }
 
   private:
