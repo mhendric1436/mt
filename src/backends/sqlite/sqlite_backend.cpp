@@ -31,41 +31,6 @@ namespace mt::backends::sqlite
 
 namespace
 {
-
-char hex_digit(std::uint8_t value)
-{
-    return static_cast<char>(value < 10 ? '0' + value : 'a' + (value - 10));
-}
-
-std::string hash_to_text(const Hash& hash)
-{
-    std::string out;
-    out.reserve(hash.bytes.size() * 2);
-    for (auto byte : hash.bytes)
-    {
-        out.push_back(hex_digit(static_cast<std::uint8_t>(byte >> 4)));
-        out.push_back(hex_digit(static_cast<std::uint8_t>(byte & 0x0F)));
-    }
-    return out;
-}
-
-std::uint8_t hex_value(char value)
-{
-    if (value >= '0' && value <= '9')
-    {
-        return static_cast<std::uint8_t>(value - '0');
-    }
-    if (value >= 'a' && value <= 'f')
-    {
-        return static_cast<std::uint8_t>(10 + value - 'a');
-    }
-    if (value >= 'A' && value <= 'F')
-    {
-        return static_cast<std::uint8_t>(10 + value - 'A');
-    }
-    throw BackendError("invalid stored SQLite hash");
-}
-
 Hash hash_from_text(const std::string& encoded)
 {
     if (encoded.size() % 2 != 0)
