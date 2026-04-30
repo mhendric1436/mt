@@ -111,6 +111,36 @@ Unique and index constraints must be enforced atomically with the commit. A back
 reports a schema capability as supported must apply it consistently for all affected
 writes.
 
+## Schema Snapshot Storage
+
+`ensure_collection(spec)` is the schema evolution boundary for a collection. A backend
+must store the last accepted `CollectionSpec` for each logical collection in
+backend-private metadata, separate from user documents.
+
+Durable backends should persist schema snapshots in private metadata tables owned by the
+backend. In-memory backends may keep snapshots in process-local state. The stored
+snapshot must include at least:
+
+- logical collection name
+- schema version
+- key field
+- field metadata, including nested object fields, required markers, defaults, optional
+  value types, and array value types
+- index metadata
+
+On first `ensure_collection(spec)`, the backend creates the collection descriptor and
+stores the requested snapshot atomically with any backend collection metadata.
+
+On later `ensure_collection(spec)` calls for the same logical collection, the backend
+must compare the stored snapshot with the requested snapshot using the same compatibility
+rules as `mt::diff_schemas()`. Incompatible changes must be rejected before modifying
+the stored snapshot or descriptor. Compatible changes must update the stored snapshot and
+descriptor schema version atomically.
+
+For durable backends, the compare-and-update must be protected by the backend
+transaction, row lock, advisory lock, or equivalent serialization mechanism so concurrent
+schema checks cannot accept conflicting updates.
+
 ## Active Transactions
 
 `register_active_transaction(tx_id, start_version)` records the transaction ID and
@@ -139,6 +169,7 @@ A production backend must provide:
 - stable snapshot reads by version
 - current metadata suitable for conflict detection
 - consistent query/list semantics across snapshot and metadata methods
+- private schema snapshot storage with atomic compatible updates
 - truthful capability reporting
 - best-effort, non-throwing abort cleanup
 
