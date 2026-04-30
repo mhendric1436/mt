@@ -4,6 +4,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <filesystem>
 #include <iostream>
 #include <string>
 
@@ -47,11 +48,52 @@ void test_sqlite_backend_skeleton_rejects_operations()
     mt::backends::sqlite::SqliteBackend backend;
 
     EXPECT_THROW_AS(backend.open_session(), mt::BackendError);
-    EXPECT_THROW_AS(backend.bootstrap(mt::BootstrapSpec{}), mt::BackendError);
     EXPECT_THROW_AS(
         backend.ensure_collection(mt::CollectionSpec{.logical_name = "users"}), mt::BackendError
     );
     EXPECT_THROW_AS(backend.get_collection("users"), mt::BackendError);
+}
+
+std::filesystem::path sqlite_test_path(std::string_view name)
+{
+    auto path = std::filesystem::temp_directory_path() / std::string(name);
+    std::filesystem::remove(path);
+    return path;
+}
+
+void test_sqlite_backend_bootstrap_creates_private_metadata()
+{
+    auto path = sqlite_test_path("mt_sqlite_bootstrap_test.sqlite");
+    mt::backends::sqlite::SqliteBackend backend{path.string()};
+
+    backend.bootstrap(mt::BootstrapSpec{.metadata_schema_version = 7});
+    backend.bootstrap(mt::BootstrapSpec{.metadata_schema_version = 7});
+
+    auto connection = mt::backends::sqlite::detail::Connection::open(path.string());
+    mt::backends::sqlite::detail::Statement tables{
+        connection.get(), "SELECT COUNT(*) FROM sqlite_master "
+                          "WHERE type = 'table' "
+                          "AND name IN ("
+                          "'mt_meta', 'mt_clock', 'mt_collections', "
+                          "'mt_active_transactions', 'mt_history', 'mt_current')"
+    };
+    EXPECT_TRUE(tables.step());
+    EXPECT_EQ(tables.column_int64(0), std::int64_t{6});
+
+    mt::backends::sqlite::detail::Statement metadata{
+        connection.get(), "SELECT value FROM mt_meta WHERE key = 'metadata_schema_version'"
+    };
+    EXPECT_TRUE(metadata.step());
+    EXPECT_EQ(metadata.column_int64(0), std::int64_t{7});
+
+    mt::backends::sqlite::detail::Statement clock{
+        connection.get(), "SELECT version, next_tx_id FROM mt_clock WHERE id = 1"
+    };
+    EXPECT_TRUE(clock.step());
+    EXPECT_EQ(clock.column_int64(0), std::int64_t{0});
+    EXPECT_EQ(clock.column_int64(1), std::int64_t{1});
+
+    std::filesystem::remove(path);
 }
 
 void test_sqlite_detail_connection_executes_sql()
@@ -123,6 +165,7 @@ int main()
 {
     test_sqlite_backend_skeleton_reports_no_capabilities();
     test_sqlite_backend_skeleton_rejects_operations();
+    test_sqlite_backend_bootstrap_creates_private_metadata();
     test_sqlite_detail_connection_executes_sql();
     test_sqlite_detail_statement_reuses_bindings_after_reset();
     test_sqlite_detail_statement_binds_text_and_null();

@@ -1,15 +1,16 @@
 #pragma once
 
 #include "mt/backend.hpp"
-#include "mt/errors.hpp"
 
 #include <memory>
+#include <string>
 #include <string_view>
 
 // -----------------------------------------------------------------------------
 // mt/backends/sqlite.hpp
 //
-// Dependency-free skeleton for a future optional SQLite backend.
+// Optional SQLite backend public interface. The implementation links against
+// SQLite only through optional backend build targets.
 // -----------------------------------------------------------------------------
 
 namespace mt::backends::sqlite
@@ -18,32 +19,17 @@ namespace mt::backends::sqlite
 class SqliteBackend final : public IDatabaseBackend
 {
   public:
-    BackendCapabilities capabilities() const override
-    {
-        auto capabilities = BackendCapabilities{};
-        capabilities.query.order_by_key = false;
-        return capabilities;
-    }
+    SqliteBackend();
+    explicit SqliteBackend(std::string path);
 
-    std::unique_ptr<IBackendSession> open_session() override
-    {
-        throw BackendError("sqlite backend skeleton is not implemented");
-    }
+    BackendCapabilities capabilities() const override;
+    std::unique_ptr<IBackendSession> open_session() override;
+    void bootstrap(const BootstrapSpec& spec) override;
+    CollectionDescriptor ensure_collection(const CollectionSpec& spec) override;
+    CollectionDescriptor get_collection(std::string_view logical_name) override;
 
-    void bootstrap(const BootstrapSpec&) override
-    {
-        throw BackendError("sqlite backend skeleton is not implemented");
-    }
-
-    CollectionDescriptor ensure_collection(const CollectionSpec&) override
-    {
-        throw BackendError("sqlite backend skeleton is not implemented");
-    }
-
-    CollectionDescriptor get_collection(std::string_view) override
-    {
-        throw BackendError("sqlite backend skeleton is not implemented");
-    }
+  private:
+    std::string path_;
 };
 
 } // namespace mt::backends::sqlite
