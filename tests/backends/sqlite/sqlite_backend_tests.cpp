@@ -1,4 +1,5 @@
 #include "mt/backends/sqlite.hpp"
+#include "mt/core.hpp"
 
 #include "../../../src/backends/sqlite/sqlite_detail.hpp"
 
@@ -6,7 +7,11 @@
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
+#include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #define EXPECT_FALSE(expr) assert(!(expr))
 #define EXPECT_TRUE(expr) assert((expr))
@@ -26,6 +31,57 @@
         }                                                                                          \
         assert(did_throw && "expected exception not thrown");                                      \
     } while (false)
+
+struct SqliteUser
+{
+    std::string id;
+    std::string email;
+    bool active = true;
+
+    friend bool operator==(
+        const SqliteUser&,
+        const SqliteUser&
+    ) = default;
+};
+
+struct SqliteUserMapping
+{
+    static constexpr std::string_view table_name = "users";
+    static constexpr int schema_version = 1;
+    static constexpr std::string_view key_field = "id";
+
+    static std::string key(const SqliteUser& user)
+    {
+        return user.id;
+    }
+
+    static std::vector<mt::FieldSpec> fields()
+    {
+        return {
+            mt::FieldSpec::string("id"), mt::FieldSpec::string("email"),
+            mt::FieldSpec::boolean("active").mark_required(false).with_default(mt::Json(true))
+        };
+    }
+
+    static mt::Json to_json(const SqliteUser& user)
+    {
+        return mt::Json::object({{"id", user.id}, {"email", user.email}, {"active", user.active}});
+    }
+
+    static SqliteUser from_json(const mt::Json& json)
+    {
+        return SqliteUser{
+            .id = json["id"].as_string(),
+            .email = json["email"].as_string(),
+            .active = json["active"].as_bool()
+        };
+    }
+
+    static std::vector<mt::IndexSpec> indexes()
+    {
+        return {mt::IndexSpec::json_path_index("email", "$.email").make_unique()};
+    }
+};
 
 void test_sqlite_backend_reports_capabilities()
 {
@@ -900,6 +956,114 @@ void test_sqlite_backend_unique_indexes_allow_same_key_update_missing_path_and_d
     std::filesystem::remove(path);
 }
 
+void test_sqlite_core_transactions_persist_across_backend_instances()
+{
+    auto path = sqlite_test_path("mt_sqlite_core_persistence_test.sqlite");
+
+    {
+        auto backend = std::make_shared<mt::backends::sqlite::SqliteBackend>(path.string());
+        mt::Database db{backend};
+        mt::TransactionProvider txs{db};
+        mt::TableProvider tables{db};
+        auto users = tables.table<SqliteUser, SqliteUserMapping>();
+
+        txs.run([&](mt::Transaction& tx)
+                { users.put(tx, SqliteUser{.id = "user:1", .email = "one@example.com"}); });
+    }
+
+    {
+        auto backend = std::make_shared<mt::backends::sqlite::SqliteBackend>(path.string());
+        mt::Database db{backend};
+        mt::TableProvider tables{db};
+        auto users = tables.table<SqliteUser, SqliteUserMapping>();
+
+        auto loaded = users.require("user:1");
+        EXPECT_EQ(loaded.email, std::string("one@example.com"));
+        EXPECT_TRUE(loaded.active);
+    }
+
+    std::filesystem::remove(path);
+}
+
+void test_sqlite_core_table_list_query_and_delete()
+{
+    auto path = sqlite_test_path("mt_sqlite_core_table_test.sqlite");
+    auto backend = std::make_shared<mt::backends::sqlite::SqliteBackend>(path.string());
+    mt::Database db{backend};
+    mt::TransactionProvider txs{db};
+    mt::TableProvider tables{db};
+    auto users = tables.table<SqliteUser, SqliteUserMapping>();
+
+    txs.run(
+        [&](mt::Transaction& tx)
+        {
+            users.put(tx, SqliteUser{.id = "user:1", .email = "one@example.com"});
+            users.put(tx, SqliteUser{.id = "user:2", .email = "two@example.com", .active = false});
+            users.put(tx, SqliteUser{.id = "other:1", .email = "other@example.com"});
+        }
+    );
+
+    auto listed = users.list(mt::ListOptions{.limit = 2});
+    EXPECT_EQ(listed.size(), std::size_t{2});
+    EXPECT_EQ(listed[0].id, std::string("other:1"));
+    EXPECT_EQ(listed[1].id, std::string("user:1"));
+
+    auto queried = users.query(mt::QuerySpec::key_prefix("user:"));
+    EXPECT_EQ(queried.size(), std::size_t{2});
+    EXPECT_EQ(queried[0].id, std::string("user:1"));
+    EXPECT_EQ(queried[1].id, std::string("user:2"));
+
+    txs.run([&](mt::Transaction& tx) { users.erase(tx, "user:1"); });
+    EXPECT_FALSE(users.get("user:1").has_value());
+
+    std::filesystem::remove(path);
+}
+
+void test_sqlite_core_transactions_reject_unique_index_conflict()
+{
+    auto path = sqlite_test_path("mt_sqlite_core_unique_conflict_test.sqlite");
+    auto backend = std::make_shared<mt::backends::sqlite::SqliteBackend>(path.string());
+    mt::Database db{backend};
+    mt::TransactionProvider txs{db};
+    mt::TableProvider tables{db};
+    auto users = tables.table<SqliteUser, SqliteUserMapping>();
+
+    txs.run([&](mt::Transaction& tx)
+            { users.put(tx, SqliteUser{.id = "user:1", .email = "same@example.com"}); });
+
+    EXPECT_THROW_AS(
+        txs.run([&](mt::Transaction& tx)
+                { users.put(tx, SqliteUser{.id = "user:2", .email = "same@example.com"}); }),
+        mt::BackendError
+    );
+
+    EXPECT_FALSE(users.get("user:2").has_value());
+
+    std::filesystem::remove(path);
+}
+
+void test_sqlite_core_rejects_unsupported_query()
+{
+    auto path = sqlite_test_path("mt_sqlite_core_unsupported_query_test.sqlite");
+    auto backend = std::make_shared<mt::backends::sqlite::SqliteBackend>(path.string());
+    mt::Database db{backend};
+    mt::TableProvider tables{db};
+    auto users = tables.table<SqliteUser, SqliteUserMapping>();
+
+    mt::QuerySpec contains;
+    contains.predicates.push_back(
+        mt::QueryPredicate{
+            .op = mt::QueryOp::JsonContains,
+            .path = "$",
+            .value = mt::Json::object({{"email", "one@example.com"}})
+        }
+    );
+
+    EXPECT_THROW_AS(users.query(contains), mt::BackendError);
+
+    std::filesystem::remove(path);
+}
+
 void test_sqlite_detail_connection_executes_sql()
 {
     auto connection = mt::backends::sqlite::detail::Connection::open_memory();
@@ -992,6 +1156,10 @@ int main()
     test_sqlite_backend_query_current_metadata_filters_and_limits();
     test_sqlite_backend_enforces_unique_indexes();
     test_sqlite_backend_unique_indexes_allow_same_key_update_missing_path_and_delete();
+    test_sqlite_core_transactions_persist_across_backend_instances();
+    test_sqlite_core_table_list_query_and_delete();
+    test_sqlite_core_transactions_reject_unique_index_conflict();
+    test_sqlite_core_rejects_unsupported_query();
     test_sqlite_detail_connection_executes_sql();
     test_sqlite_detail_statement_reuses_bindings_after_reset();
     test_sqlite_detail_statement_binds_text_and_null();
