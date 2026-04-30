@@ -372,6 +372,22 @@ Json parse_stored_json(const std::string& encoded)
     return JsonParser(encoded).parse();
 }
 
+void validate_supported_query(const QuerySpec& query)
+{
+    if (!query.order_by_key)
+    {
+        throw BackendError("sqlite backend only supports key ordering");
+    }
+
+    for (const auto& predicate : query.predicates)
+    {
+        if (predicate.op == QueryOp::JsonContains)
+        {
+            throw BackendError("sqlite backend does not support JSON contains predicates");
+        }
+    }
+}
+
 int field_type_to_int(FieldType type)
 {
     return static_cast<int>(type);
@@ -959,20 +975,97 @@ class SqliteSession final : public IBackendSession
     }
 
     QueryResultEnvelope query_snapshot(
-        CollectionId,
-        const QuerySpec&,
-        Version
+        CollectionId collection,
+        const QuerySpec& query,
+        Version version
     ) override
     {
-        throw BackendError("sqlite snapshot queries are not implemented");
+        require_backend_tx();
+        validate_supported_query(query);
+
+        auto candidates =
+            list_snapshot(collection, ListOptions{.after_key = query.after_key}, version);
+
+        QueryResultEnvelope result;
+        for (const auto& row : candidates.rows)
+        {
+            if (row.deleted)
+            {
+                continue;
+            }
+            if (!matches_query(row.key, row.value, query))
+            {
+                continue;
+            }
+
+            result.rows.push_back(row);
+            if (query.limit && result.rows.size() >= *query.limit)
+            {
+                break;
+            }
+        }
+
+        return result;
     }
 
     QueryMetadataResult query_current_metadata(
-        CollectionId,
-        const QuerySpec&
+        CollectionId collection,
+        const QuerySpec& query
     ) override
     {
-        throw BackendError("sqlite current metadata queries are not implemented");
+        require_backend_tx();
+        validate_supported_query(query);
+
+        auto sql = std::string(
+            "SELECT document_key, version, deleted, value_hash, value_json "
+            "FROM mt_current "
+            "WHERE collection_id = ? "
+        );
+        if (query.after_key)
+        {
+            sql += "AND document_key > ? ";
+        }
+        sql += "ORDER BY document_key";
+
+        detail::Statement statement{connection_->get(), sql};
+        auto index = 1;
+        statement.bind_int64(index++, collection);
+        if (query.after_key)
+        {
+            statement.bind_text(index++, *query.after_key);
+        }
+
+        QueryMetadataResult result;
+        while (statement.step())
+        {
+            if (statement.column_int64(2) != 0)
+            {
+                continue;
+            }
+
+            auto key = statement.column_text(0);
+            auto value = parse_stored_json(statement.column_text(4));
+            if (!matches_query(key, value, query))
+            {
+                continue;
+            }
+
+            result.rows.push_back(
+                DocumentMetadata{
+                    .collection = collection,
+                    .key = std::move(key),
+                    .version = static_cast<Version>(statement.column_int64(1)),
+                    .deleted = false,
+                    .value_hash = hash_from_text(statement.column_text(3))
+                }
+            );
+            if (query.limit && result.rows.size() >= *query.limit)
+            {
+                break;
+            }
+        }
+
+        return result;
     }
 
     QueryResultEnvelope list_snapshot(
@@ -1195,7 +1288,8 @@ SqliteBackend::SqliteBackend(std::string path)
 BackendCapabilities SqliteBackend::capabilities() const
 {
     auto capabilities = BackendCapabilities{};
-    capabilities.query.order_by_key = false;
+    capabilities.query.key_prefix = true;
+    capabilities.query.json_equals = true;
     return capabilities;
 }
 

@@ -27,15 +27,15 @@
         assert(did_throw && "expected exception not thrown");                                      \
     } while (false)
 
-void test_sqlite_backend_skeleton_reports_no_capabilities()
+void test_sqlite_backend_reports_capabilities()
 {
     mt::backends::sqlite::SqliteBackend backend;
     auto capabilities = backend.capabilities();
 
-    EXPECT_FALSE(capabilities.query.key_prefix);
-    EXPECT_FALSE(capabilities.query.json_equals);
+    EXPECT_TRUE(capabilities.query.key_prefix);
+    EXPECT_TRUE(capabilities.query.json_equals);
     EXPECT_FALSE(capabilities.query.json_contains);
-    EXPECT_FALSE(capabilities.query.order_by_key);
+    EXPECT_TRUE(capabilities.query.order_by_key);
     EXPECT_FALSE(capabilities.query.custom_ordering);
 
     EXPECT_FALSE(capabilities.schema.json_indexes);
@@ -215,16 +215,26 @@ void test_sqlite_backend_session_rejects_invalid_lifecycle()
     std::filesystem::remove(path);
 }
 
-void test_sqlite_backend_session_reports_unimplemented_operations()
+void test_sqlite_backend_session_rejects_unsupported_queries()
 {
     auto path = sqlite_test_path("mt_sqlite_session_unimplemented_test.sqlite");
     mt::backends::sqlite::SqliteBackend backend{path.string()};
     auto session = backend.open_session();
+    mt::QuerySpec contains;
+    contains.predicates.push_back(
+        mt::QueryPredicate{
+            .op = mt::QueryOp::JsonContains,
+            .path = "$",
+            .value = mt::Json::object({{"email", "a@example.com"}})
+        }
+    );
 
     session->begin_backend_transaction();
-    EXPECT_THROW_AS(
-        session->query_snapshot(1, mt::QuerySpec::key_prefix("user:"), 0), mt::BackendError
-    );
+    EXPECT_THROW_AS(session->query_snapshot(1, contains, 0), mt::BackendError);
+
+    auto unordered = mt::QuerySpec::key_prefix("user:");
+    unordered.order_by_key = false;
+    EXPECT_THROW_AS(session->query_current_metadata(1, unordered), mt::BackendError);
     session->abort_backend_transaction();
 
     std::filesystem::remove(path);
@@ -687,6 +697,125 @@ void test_sqlite_backend_list_current_metadata_orders_and_paginates()
     std::filesystem::remove(path);
 }
 
+void test_sqlite_backend_query_snapshot_supports_key_prefix_and_json_equals()
+{
+    auto path = sqlite_test_path("mt_sqlite_query_snapshot_test.sqlite");
+    mt::backends::sqlite::SqliteBackend backend{path.string()};
+    auto descriptor = backend.ensure_collection(sqlite_user_schema(1));
+
+    mt::WriteEnvelope user_1{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Put,
+        .value = mt::Json::object({{"email", "match@example.com"}, {"active", true}}),
+        .value_hash = test_hash(0x91)
+    };
+    mt::WriteEnvelope user_2{
+        .collection = descriptor.id,
+        .key = "user:2",
+        .kind = mt::WriteKind::Put,
+        .value = mt::Json::object({{"email", "skip@example.com"}, {"active", false}}),
+        .value_hash = test_hash(0x92)
+    };
+    mt::WriteEnvelope other{
+        .collection = descriptor.id,
+        .key = "other:1",
+        .kind = mt::WriteKind::Put,
+        .value = mt::Json::object({{"email", "match@example.com"}, {"active", true}}),
+        .value_hash = test_hash(0x93)
+    };
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        session->insert_history(descriptor.id, user_1, 1);
+        session->upsert_current(descriptor.id, user_1, 1);
+        session->insert_history(descriptor.id, user_2, 2);
+        session->upsert_current(descriptor.id, user_2, 2);
+        session->insert_history(descriptor.id, other, 3);
+        session->upsert_current(descriptor.id, other, 3);
+        session->commit_backend_transaction();
+    }
+
+    auto query = mt::QuerySpec::key_prefix("user:");
+    query.predicates.push_back(
+        mt::QueryPredicate{
+            .op = mt::QueryOp::JsonEquals, .path = "$.email", .value = mt::Json("match@example.com")
+        }
+    );
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        auto rows = session->query_snapshot(descriptor.id, query, 3).rows;
+        session->commit_backend_transaction();
+
+        EXPECT_EQ(rows.size(), std::size_t{1});
+        EXPECT_EQ(rows[0].key, std::string("user:1"));
+        EXPECT_EQ(rows[0].value["email"].as_string(), std::string("match@example.com"));
+    }
+
+    std::filesystem::remove(path);
+}
+
+void test_sqlite_backend_query_current_metadata_filters_and_limits()
+{
+    auto path = sqlite_test_path("mt_sqlite_query_current_test.sqlite");
+    mt::backends::sqlite::SqliteBackend backend{path.string()};
+    auto descriptor = backend.ensure_collection(sqlite_user_schema(1));
+
+    mt::WriteEnvelope user_1{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Put,
+        .value = mt::Json::object({{"email", "match@example.com"}}),
+        .value_hash = test_hash(0xA1)
+    };
+    mt::WriteEnvelope user_2{
+        .collection = descriptor.id,
+        .key = "user:2",
+        .kind = mt::WriteKind::Put,
+        .value = mt::Json::object({{"email", "match@example.com"}}),
+        .value_hash = test_hash(0xA2)
+    };
+    mt::WriteEnvelope deleted{
+        .collection = descriptor.id,
+        .key = "user:3",
+        .kind = mt::WriteKind::Delete,
+        .value_hash = test_hash(0xA3)
+    };
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        session->insert_history(descriptor.id, user_1, 1);
+        session->upsert_current(descriptor.id, user_1, 1);
+        session->insert_history(descriptor.id, user_2, 2);
+        session->upsert_current(descriptor.id, user_2, 2);
+        session->insert_history(descriptor.id, deleted, 3);
+        session->upsert_current(descriptor.id, deleted, 3);
+        session->commit_backend_transaction();
+    }
+
+    auto query = mt::QuerySpec::where_json_eq("$.email", "match@example.com");
+    query.limit = 1;
+    query.after_key = "user:1";
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        auto rows = session->query_current_metadata(descriptor.id, query).rows;
+        session->commit_backend_transaction();
+
+        EXPECT_EQ(rows.size(), std::size_t{1});
+        EXPECT_EQ(rows[0].key, std::string("user:2"));
+        EXPECT_FALSE(rows[0].deleted);
+        EXPECT_EQ(rows[0].value_hash, test_hash(0xA2));
+    }
+
+    std::filesystem::remove(path);
+}
+
 void test_sqlite_detail_connection_executes_sql()
 {
     auto connection = mt::backends::sqlite::detail::Connection::open_memory();
@@ -754,7 +883,7 @@ void test_sqlite_detail_statement_binds_text_and_null()
 
 int main()
 {
-    test_sqlite_backend_skeleton_reports_no_capabilities();
+    test_sqlite_backend_reports_capabilities();
     test_sqlite_backend_rejects_unimplemented_operations();
     test_sqlite_backend_bootstrap_creates_private_metadata();
     test_sqlite_backend_ensure_collection_creates_and_gets_descriptor();
@@ -763,7 +892,7 @@ int main()
     test_sqlite_backend_rejects_incompatible_schema_change();
     test_sqlite_backend_session_commits_and_aborts_transactions();
     test_sqlite_backend_session_rejects_invalid_lifecycle();
-    test_sqlite_backend_session_reports_unimplemented_operations();
+    test_sqlite_backend_session_rejects_unsupported_queries();
     test_sqlite_backend_clock_reads_and_increments();
     test_sqlite_backend_clock_increment_requires_lock();
     test_sqlite_backend_transaction_ids_are_unique_and_persisted();
@@ -775,6 +904,8 @@ int main()
     test_sqlite_backend_point_reads_return_tombstones();
     test_sqlite_backend_list_snapshot_orders_and_paginates();
     test_sqlite_backend_list_current_metadata_orders_and_paginates();
+    test_sqlite_backend_query_snapshot_supports_key_prefix_and_json_equals();
+    test_sqlite_backend_query_current_metadata_filters_and_limits();
     test_sqlite_detail_connection_executes_sql();
     test_sqlite_detail_statement_reuses_bindings_after_reset();
     test_sqlite_detail_statement_binds_text_and_null();
