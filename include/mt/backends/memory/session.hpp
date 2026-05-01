@@ -42,8 +42,8 @@ class MemorySession final : public IBackendSession
         try
         {
             std::lock_guard lock(state_->mutex);
-            validate_pending_current_writes();
-            apply_pending_writes();
+            auto projected = project_pending_writes();
+            commit_projected_writes(projected);
             release_clock_if_locked_unlocked();
             clear_pending_writes();
             in_backend_tx_ = false;
@@ -430,7 +430,7 @@ class MemorySession final : public IBackendSession
 
     MemoryCollection projected_collection_for_write(CollectionId collection) const
     {
-        auto projected = collection_ref(collection);
+        auto projected = copy_collection(collection);
         for (const auto& pending : pending_current_)
         {
             if (pending.collection == collection)
@@ -441,16 +441,49 @@ class MemorySession final : public IBackendSession
         return projected;
     }
 
-    void validate_pending_current_writes() const
+    MemoryCollection copy_collection(CollectionId collection) const
     {
-        std::map<CollectionId, MemoryCollection> projected_collections;
+        auto it = state_->collections.find(collection);
+        if (it == state_->collections.end())
+        {
+            throw BackendError("unknown collection");
+        }
+        return it->second;
+    }
+
+    MemoryCollection& projected_collection(
+        std::map<
+            CollectionId,
+            MemoryCollection>& projected_collections,
+        CollectionId collection
+    ) const
+    {
+        auto it = projected_collections.find(collection);
+        if (it != projected_collections.end())
+        {
+            return it->second;
+        }
+
+        it = projected_collections.emplace(collection, copy_collection(collection)).first;
+        return it->second;
+    }
+
+    std::map<
+        CollectionId,
+        MemoryCollection>
+    project_pending_writes() const
+    {
+        auto projected_collections = std::map<CollectionId, MemoryCollection>{};
+
+        for (const auto& pending : pending_history_)
+        {
+            auto& projected = projected_collection(projected_collections, pending.collection);
+            projected.history[pending.version.key].push_back(pending.version);
+        }
 
         for (const auto& pending : pending_current_)
         {
-            auto [it, inserted] = projected_collections.emplace(
-                pending.collection, collection_ref(pending.collection)
-            );
-            auto& projected = it->second;
+            auto& projected = projected_collection(projected_collections, pending.collection);
             auto write = WriteEnvelope{
                 .collection = pending.collection,
                 .key = pending.version.key,
@@ -460,22 +493,22 @@ class MemorySession final : public IBackendSession
             };
             check_unique_constraints(projected, write);
             projected.current[pending.version.key] = pending.version;
-            (void)inserted;
         }
+
+        return projected_collections;
     }
 
-    void apply_pending_writes()
+    void commit_projected_writes(
+        std::map<
+            CollectionId,
+            MemoryCollection>& projected_collections
+    )
     {
-        for (const auto& pending : pending_history_)
+        for (auto& [collection_id, projected] : projected_collections)
         {
-            auto& c = collection_mut(pending.collection);
-            c.history[pending.version.key].push_back(pending.version);
-        }
-
-        for (const auto& pending : pending_current_)
-        {
-            auto& c = collection_mut(pending.collection);
-            c.current[pending.version.key] = pending.version;
+            auto& committed = collection_mut(collection_id);
+            using std::swap;
+            swap(committed, projected);
         }
     }
 
