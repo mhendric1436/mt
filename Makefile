@@ -61,12 +61,14 @@ SQLITE_BACKEND_SRC := \
 	src/backends/sqlite/sqlite_constraints.cpp \
 	src/backends/sqlite/sqlite_document.cpp \
 	src/backends/sqlite/sqlite_schema.cpp \
+	src/backends/sqlite/sqlite_session.cpp \
 	src/backends/sqlite/sqlite_state.cpp
 SQLITE_BACKEND_HEADERS := \
 	src/backends/sqlite/sqlite_constraints.hpp \
 	src/backends/sqlite/sqlite_detail.hpp \
 	src/backends/sqlite/sqlite_document.hpp \
 	src/backends/sqlite/sqlite_schema.hpp \
+	src/backends/sqlite/sqlite_session.hpp \
 	src/backends/sqlite/sqlite_state.hpp
 SQLITE_TEST_SRC := tests/backends/sqlite/sqlite_backend_tests.cpp
 HEADER_CHECK_SRC := src/mt_core.cpp
