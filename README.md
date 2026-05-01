@@ -91,9 +91,9 @@ backend separately:
 #include "mt/backends/memory.hpp"
 ```
 
-SQLite and PostgreSQL currently have dependency-free skeleton headers. Future concrete
-backend implementations should remain optional so users of the core library do not need
-database client dependencies.
+SQLite has an optional backend implementation under `src/backends/sqlite/`. PostgreSQL
+currently has a dependency-free skeleton header. Concrete backend implementations should
+remain optional so users of the core library do not need database client dependencies.
 
 ## Code Generation
 
@@ -252,9 +252,11 @@ handle retries at a higher level.
 - `include/mt/database.hpp`: database facade
 - `include/mt/transaction.hpp`: transaction state, validation, retry provider
 - `include/mt/table.hpp`: mapping concept and typed table facade
-- `include/mt/backends/sqlite.hpp`: dependency-free SQLite backend skeleton
+- `include/mt/backends/sqlite.hpp`: dependency-free SQLite backend public header
 - `include/mt/backends/postgres.hpp`: dependency-free PostgreSQL backend skeleton
 - `src/backends/`: optional backend implementation files
+- `src/backends/sqlite/README.md`: SQLite backend implementation layout
+- `tests/backends/sqlite/README.md`: SQLite backend test layout
 - `tools/mt_codegen.py`: JSON metadata to C++ header generator
 - `examples/schemas/user.mt.json`: example schema used by documentation and tests
 - `tests/mt_core_tests.cpp`: test suite
@@ -309,8 +311,11 @@ It can be useful for application-owned caches, ephemeral projections, or single-
 embedded workflows. It is not a durable shared backend for restart-safe persistence or
 cross-process consistency.
 
-SQLite and PostgreSQL currently have dependency-free skeleton headers. Future concrete
-implementations should remain optional so core users do not need those dependencies.
+SQLite is implemented as an optional backend with source layout documentation in
+`src/backends/sqlite/README.md` and test layout documentation in
+`tests/backends/sqlite/README.md`. PostgreSQL currently has a dependency-free skeleton
+header. Concrete implementations should remain optional so core users do not need those
+dependencies.
 
 ## Schema Evolution
 
