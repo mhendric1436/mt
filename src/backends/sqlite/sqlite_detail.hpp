@@ -19,6 +19,14 @@
 namespace mt::backends::sqlite::detail
 {
 
+struct StoragePath
+{
+    static constexpr std::string_view memory()
+    {
+        return ":memory:";
+    }
+};
+
 [[noreturn]] inline void throw_sqlite_error(
     sqlite3* db,
     std::string_view context
@@ -105,7 +113,7 @@ class Connection
 
     static Connection open_memory()
     {
-        return open(":memory:");
+        return open(StoragePath::memory());
     }
 
     sqlite3* get() const noexcept

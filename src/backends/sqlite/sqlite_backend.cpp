@@ -497,7 +497,7 @@ void ensure_bootstrapped(
     const BootstrapSpec& spec = BootstrapSpec{}
 )
 {
-    if (state->path == ":memory:")
+    if (state->path == detail::StoragePath::memory())
     {
         return;
     }
@@ -520,7 +520,7 @@ void ensure_bootstrapped(
 
 detail::Connection open_bootstrapped_connection(const std::shared_ptr<SqliteBackendState>& state)
 {
-    if (state->path == ":memory:")
+    if (state->path == detail::StoragePath::memory())
     {
         // SQLite in-memory databases are scoped to a single connection.
         auto connection = detail::Connection::open(state->path);
@@ -969,7 +969,7 @@ class SqliteSession final : public IBackendSession
 } // namespace
 
 SqliteBackend::SqliteBackend()
-    : SqliteBackend(":memory:")
+    : SqliteBackend(std::string(detail::StoragePath::memory()))
 {
 }
 
@@ -995,7 +995,7 @@ std::unique_ptr<IBackendSession> SqliteBackend::open_session()
 
 void SqliteBackend::bootstrap(const BootstrapSpec& spec)
 {
-    if (state_->path == ":memory:")
+    if (state_->path == detail::StoragePath::memory())
     {
         auto connection = detail::Connection::open(state_->path);
         bootstrap_schema(connection, spec);
