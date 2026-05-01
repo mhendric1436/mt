@@ -3,7 +3,7 @@
 #include "sqlite_detail.hpp"
 #include "sqlite_state.hpp"
 
-#include "mt/backend.hpp"
+#include "mt/backend/session.hpp"
 
 #include <memory>
 #include <optional>

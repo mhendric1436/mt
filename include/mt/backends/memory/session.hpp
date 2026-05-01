@@ -3,7 +3,7 @@
 #include "mt/backends/memory/session_helpers.hpp"
 #include "mt/backends/memory/state.hpp"
 
-#include "mt/backend.hpp"
+#include "mt/backend/session.hpp"
 #include "mt/errors.hpp"
 
 #include <memory>

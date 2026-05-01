@@ -4,7 +4,7 @@
 #include "mt/backends/memory/session.hpp"
 #include "mt/backends/memory/state.hpp"
 
-#include "mt/backend.hpp"
+#include "mt/backend/database_backend.hpp"
 
 #include <memory>
 #include <optional>

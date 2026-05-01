@@ -2,7 +2,6 @@
 
 #include "sqlite_detail.hpp"
 
-#include "mt/backend.hpp"
 #include "mt/backends/sqlite.hpp"
 
 #include <atomic>
