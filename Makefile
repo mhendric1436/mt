@@ -56,20 +56,8 @@ CORE_HEADERS := \
 	$(CORE_HEADER)
 TEST_SRC    := tests/mt_core_tests.cpp
 CODEGEN_TEST_SRC := tests/mt_codegen_tests.cpp
-SQLITE_BACKEND_SRC := \
-	src/backends/sqlite/sqlite_backend.cpp \
-	src/backends/sqlite/sqlite_constraints.cpp \
-	src/backends/sqlite/sqlite_document.cpp \
-	src/backends/sqlite/sqlite_schema.cpp \
-	src/backends/sqlite/sqlite_session.cpp \
-	src/backends/sqlite/sqlite_state.cpp
-SQLITE_BACKEND_HEADERS := \
-	src/backends/sqlite/sqlite_constraints.hpp \
-	src/backends/sqlite/sqlite_detail.hpp \
-	src/backends/sqlite/sqlite_document.hpp \
-	src/backends/sqlite/sqlite_schema.hpp \
-	src/backends/sqlite/sqlite_session.hpp \
-	src/backends/sqlite/sqlite_state.hpp
+SQLITE_BACKEND_SRC := $(wildcard src/backends/sqlite/*.cpp)
+SQLITE_BACKEND_HEADERS := $(wildcard src/backends/sqlite/*.hpp)
 SQLITE_TEST_SRC := $(wildcard tests/backends/sqlite/*.cpp)
 SQLITE_TEST_HEADERS := $(wildcard tests/backends/sqlite/*.hpp)
 HEADER_CHECK_SRC := src/mt_core.cpp
@@ -77,7 +65,7 @@ CODEGEN := python3 tools/mt_codegen.py
 CODEGEN_VALIDATION_TEST := python3 tools/test_mt_codegen.py
 EXAMPLE_SCHEMA := examples/schemas/user.mt.json
 GENERATED_EXAMPLE_HEADER := $(GENERATED_DIR)/user.hpp
-FORMAT_FILES := $(CORE_HEADERS) $(HEADER_CHECK_SRC) $(TEST_SRC) $(CODEGEN_TEST_SRC) $(wildcard $(SQLITE_BACKEND_SRC) $(SQLITE_BACKEND_HEADERS) $(SQLITE_TEST_SRC) $(SQLITE_TEST_HEADERS))
+FORMAT_FILES := $(CORE_HEADERS) $(HEADER_CHECK_SRC) $(TEST_SRC) $(CODEGEN_TEST_SRC) $(SQLITE_BACKEND_SRC) $(SQLITE_BACKEND_HEADERS) $(SQLITE_TEST_SRC) $(SQLITE_TEST_HEADERS)
 PUML_FILES := $(wildcard docs/*.puml)
 
 .PHONY: all build test check sqlite-build sqlite-test sqlite-check codegen-examples codegen-validation header-check format docs-png clean-docs clean rebuild print-config
