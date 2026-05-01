@@ -1,17 +1,14 @@
 #pragma once
 
+#include "mt/backends/memory/backend_helpers.hpp"
 #include "mt/backends/memory/session.hpp"
 #include "mt/backends/memory/state.hpp"
 
 #include "mt/backend.hpp"
-#include "mt/errors.hpp"
-#include "mt/schema.hpp"
 
 #include <memory>
 #include <optional>
-#include <string>
 #include <string_view>
-#include <utility>
 
 // -----------------------------------------------------------------------------
 // mt/backends/memory.hpp
@@ -60,78 +57,17 @@ class MemoryBackend final : public IDatabaseBackend
 
     std::optional<CollectionSpec> schema_snapshot(std::string_view logical_name) const
     {
-        std::lock_guard lock(state_->mutex);
-        auto descriptor_it = state_->descriptors_by_name.find(std::string(logical_name));
-        if (descriptor_it == state_->descriptors_by_name.end())
-        {
-            return std::nullopt;
-        }
-
-        auto collection_it = state_->collections.find(descriptor_it->second.id);
-        if (collection_it == state_->collections.end())
-        {
-            return std::nullopt;
-        }
-
-        return collection_it->second.schema;
+        return memory_schema_snapshot(*state_, logical_name);
     }
 
     CollectionDescriptor ensure_collection(const CollectionSpec& spec) override
     {
-        std::lock_guard lock(state_->mutex);
-
-        if (!spec.migrations.empty())
-        {
-            throw BackendError("memory backend does not support collection migrations");
-        }
-
-        auto existing = state_->descriptors_by_name.find(spec.logical_name);
-        if (existing != state_->descriptors_by_name.end())
-        {
-            auto collection_it = state_->collections.find(existing->second.id);
-            if (collection_it == state_->collections.end())
-            {
-                throw BackendError("memory backend collection metadata is inconsistent");
-            }
-
-            auto diff = diff_schemas(collection_it->second.schema, spec);
-            if (!diff.is_compatible())
-            {
-                const auto& change = diff.incompatible_changes.front();
-                throw BackendError(
-                    "incompatible schema change for collection '" + spec.logical_name + "' at " +
-                    change.path + ": " + change.message
-                );
-            }
-
-            collection_it->second.schema = spec;
-            collection_it->second.indexes = spec.indexes;
-            collection_it->second.descriptor.schema_version = spec.schema_version;
-            existing->second.schema_version = spec.schema_version;
-            return existing->second;
-        }
-
-        CollectionDescriptor descriptor{
-            .id = state_->next_collection_id++,
-            .logical_name = spec.logical_name,
-            .schema_version = spec.schema_version
-        };
-
-        MemoryCollection collection;
-        collection.descriptor = descriptor;
-        collection.schema = spec;
-        collection.indexes = spec.indexes;
-
-        state_->descriptors_by_name[spec.logical_name] = descriptor;
-        state_->collections[descriptor.id] = std::move(collection);
-
-        return descriptor;
+        return ensure_memory_collection(*state_, spec);
     }
 
     CollectionDescriptor get_collection(std::string_view logical_name) override
     {
-        std::lock_guard lock(state_->mutex);
-        return state_->descriptors_by_name.at(std::string(logical_name));
+        return get_memory_collection(*state_, logical_name);
     }
 
   private:
