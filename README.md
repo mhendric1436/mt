@@ -249,6 +249,7 @@ handle retries at a higher level.
 - `include/mt/types.hpp`: document envelopes and write envelopes
 - `include/mt/backend.hpp`: backend interfaces
 - `include/mt/backends/memory.hpp`: in-memory backend
+- `include/mt/backends/memory/`: memory backend implementation subheaders
 - `include/mt/database.hpp`: database facade
 - `include/mt/transaction.hpp`: transaction state, validation, retry provider
 - `include/mt/table.hpp`: mapping concept and typed table facade
@@ -306,6 +307,10 @@ The memory backend is header-only and available as:
 ```cpp
 #include "mt/backends/memory.hpp"
 ```
+
+Application code should include `mt/backends/memory.hpp`. Headers under
+`mt/backends/memory/` are decomposition headers for the memory backend implementation
+and are not the stable include boundary for users.
 
 It can be useful for application-owned caches, ephemeral projections, or single-process
 embedded workflows. It is not a durable shared backend for restart-safe persistence or

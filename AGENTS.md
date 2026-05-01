@@ -9,7 +9,8 @@ This repository is a small C++20 micro-transaction core library.
 - `include/mt/backend.hpp`, `include/mt/metadata_cache.hpp`, and `include/mt/database.hpp` contain backend and database shell interfaces.
 - `include/mt/transaction.hpp` contains transaction state, validation, retry policy, and `TransactionProvider`.
 - `include/mt/table.hpp` contains the mapping concept, `TableProvider`, and typed `Table` facade.
-- `include/mt/backends/memory.hpp` contains the process-local, non-durable in-memory backend used for tests, local development, and application-owned ephemeral use cases.
+- `include/mt/backends/memory.hpp` is the public include for the process-local, non-durable in-memory backend used for tests, local development, and application-owned ephemeral use cases.
+- `include/mt/backends/memory/` contains memory backend decomposition headers. Treat these as implementation structure; user-facing code should include `mt/backends/memory.hpp`.
 - `tools/mt_codegen.py` generates row and mapping headers from user-owned JSON metadata.
 - `examples/schemas/user.mt.json` is an example schema used for documentation and tests.
 - `tests/mt_core_tests.cpp` contains the current test suite.
@@ -88,3 +89,7 @@ Public headers live under `include/mt`. Prefer narrower includes for implementat
 - `mt/metadata_cache.hpp`
 - `mt/transaction.hpp`
 - `mt/table.hpp`
+
+Backend users should include the backend public wrapper, such as
+`mt/backends/memory.hpp`. Subheaders below `mt/backends/<backend>/` are for backend
+implementation decomposition unless that backend explicitly documents them otherwise.

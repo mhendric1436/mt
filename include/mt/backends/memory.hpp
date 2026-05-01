@@ -10,4 +10,6 @@
 //
 // This is intentionally backend-compatible with mt/core.hpp and has no test-row
 // knowledge. Tests can include this file instead of embedding a backend.
+// User code should include this wrapper instead of the implementation subheaders
+// under mt/backends/memory/.
 // -----------------------------------------------------------------------------
