@@ -1,12 +1,13 @@
 #pragma once
 
+#include "../backend_test_support.hpp"
+
 #include "../../../build/generated/user.hpp"
 #include "mt/backends/sqlite.hpp"
 #include "mt/core.hpp"
 
 #include "../../../src/backends/sqlite/sqlite_detail.hpp"
 
-#include <cassert>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -15,25 +16,6 @@
 #include <string_view>
 #include <utility>
 #include <vector>
-
-#define EXPECT_FALSE(expr) assert(!(expr))
-#define EXPECT_TRUE(expr) assert((expr))
-#define EXPECT_EQ(a, b) assert((a) == (b))
-
-#define EXPECT_THROW_AS(statement, exception_type)                                                 \
-    do                                                                                             \
-    {                                                                                              \
-        bool did_throw = false;                                                                    \
-        try                                                                                        \
-        {                                                                                          \
-            statement;                                                                             \
-        }                                                                                          \
-        catch (const exception_type&)                                                              \
-        {                                                                                          \
-            did_throw = true;                                                                      \
-        }                                                                                          \
-        assert(did_throw && "expected exception not thrown");                                      \
-    } while (false)
 
 using SqliteUser = mt_examples::User;
 using SqliteUserMapping = mt_examples::UserMapping;

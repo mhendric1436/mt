@@ -1,34 +1,16 @@
 #pragma once
 
+#include "../backend_test_support.hpp"
+
 #include "mt/backends/memory.hpp"
 #include "mt/core.hpp"
 
-#include <cassert>
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
-
-#define EXPECT_TRUE(expr) assert((expr))
-#define EXPECT_FALSE(expr) assert(!(expr))
-#define EXPECT_EQ(a, b) assert((a) == (b))
-
-#define EXPECT_THROW_AS(statement, exception_type)                                                 \
-    do                                                                                             \
-    {                                                                                              \
-        bool did_throw = false;                                                                    \
-        try                                                                                        \
-        {                                                                                          \
-            statement;                                                                             \
-        }                                                                                          \
-        catch (const exception_type&)                                                              \
-        {                                                                                          \
-            did_throw = true;                                                                      \
-        }                                                                                          \
-        assert(did_throw && "expected exception not thrown");                                      \
-    } while (false)
 
 namespace memory_test_support
 {
