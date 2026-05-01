@@ -1,7 +1,14 @@
 # Backend Contract
 
 This document defines the contract for implementations of `mt::IDatabaseBackend` and
-`mt::IBackendSession`.
+`mt::IBackendSession`. `IBackendSession` is the single session object returned by a
+backend and is composed from focused interfaces:
+
+- `IBackendLifecycle`
+- `IBackendClock`
+- `IBackendActiveTransactions`
+- `IBackendReader`
+- `IBackendWriter`
 
 The core invariant is:
 
@@ -43,6 +50,8 @@ make staged history rows, current rows, or active transaction cleanup partially 
 
 ## Session Lifecycle
 
+Implemented by `IBackendLifecycle`.
+
 A normal session follows this flow:
 
 ```text
@@ -62,6 +71,8 @@ should tolerate repeated cleanup attempts where practical. Destructors must not 
 
 ## Clock And Version Semantics
 
+Implemented by `IBackendClock`.
+
 `read_clock()` returns the latest committed version that can be used as the snapshot
 boundary for a new transaction.
 
@@ -75,6 +86,8 @@ is its snapshot boundary.
 
 ## Transaction IDs
 
+Implemented by `IBackendActiveTransactions`.
+
 `TxId` is backend-owned and opaque to core. Core stores and passes transaction IDs but
 must not parse, order, or compare their internal structure.
 
@@ -83,6 +96,8 @@ transaction metadata. Distributed backends may use native transaction identifier
 UUIDs, prefixed counters, or another backend-specific form.
 
 ## Read Semantics
+
+Implemented by `IBackendReader`.
 
 `read_snapshot(collection, key, version)` returns the latest document version with a
 commit version less than or equal to `version`. It may return a tombstone for a deleted
@@ -100,6 +115,8 @@ Ordering and pagination must match `BackendCapabilities`. When key ordering is r
 as supported, `after_key` pagination must be stable under key ordering.
 
 ## Write Semantics
+
+Implemented by `IBackendWriter`.
 
 `insert_history()` appends the committed document version or delete tombstone to history.
 `upsert_current()` updates the latest current state and metadata.
@@ -147,6 +164,8 @@ from the latest generated mappings in the binary instead of migrating old in-mem
 state.
 
 ## Active Transactions
+
+Implemented by `IBackendActiveTransactions`.
 
 `register_active_transaction(tx_id, start_version)` records the transaction ID and
 snapshot start version. `unregister_active_transaction(tx_id)` is cleanup and should
