@@ -15,6 +15,7 @@ void test_memory_backend_rejects_required_added_field_schema_change();
 void test_memory_backend_rejects_migrations();
 void test_memory_backend_active_transaction_lifecycle_allows_register_commit_and_abort();
 void test_memory_backend_snapshot_reads_select_best_visible_version();
+void test_memory_backend_failed_multi_write_commit_publishes_no_partial_writes();
 void test_memory_backend_query_current_metadata_filters_and_limits();
 void test_memory_backend_query_supports_json_equals();
 void test_memory_backend_rejects_json_contains_query();
@@ -37,6 +38,7 @@ int main()
     test_memory_backend_rejects_migrations();
     test_memory_backend_active_transaction_lifecycle_allows_register_commit_and_abort();
     test_memory_backend_snapshot_reads_select_best_visible_version();
+    test_memory_backend_failed_multi_write_commit_publishes_no_partial_writes();
     test_memory_backend_query_current_metadata_filters_and_limits();
     test_memory_backend_query_supports_json_equals();
     test_memory_backend_rejects_json_contains_query();

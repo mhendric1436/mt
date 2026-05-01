@@ -2,6 +2,7 @@
 
 using memory_test_support::delete_write;
 using memory_test_support::Harness;
+using memory_test_support::User;
 using memory_test_support::user_write;
 
 void test_memory_backend_active_transaction_lifecycle_allows_register_commit_and_abort()
@@ -45,12 +46,12 @@ void test_memory_backend_snapshot_reads_select_best_visible_version()
     session->upsert_current(collection, second, 2);
     session->insert_history(collection, deleted, 3);
     session->upsert_current(collection, deleted, 3);
+    session->commit_backend_transaction();
 
     auto missing = session->read_snapshot(collection, "user:1", 0);
     auto old_doc = session->read_snapshot(collection, "user:1", 1);
     auto new_doc = session->read_snapshot(collection, "user:1", 2);
     auto tombstone = session->read_snapshot(collection, "user:1", 3);
-    session->commit_backend_transaction();
 
     EXPECT_FALSE(missing.has_value());
     EXPECT_TRUE(old_doc.has_value());
@@ -62,4 +63,23 @@ void test_memory_backend_snapshot_reads_select_best_visible_version()
     EXPECT_TRUE(tombstone.has_value());
     EXPECT_TRUE(tombstone->deleted);
     EXPECT_EQ(tombstone->value_hash, test_hash(0x33));
+}
+
+void test_memory_backend_failed_multi_write_commit_publishes_no_partial_writes()
+{
+    Harness h;
+
+    EXPECT_THROW_AS(
+        h.txs.run(
+            [&](mt::Transaction& tx)
+            {
+                h.users.put(tx, User{.id = "user:1", .email = "same@example.com", .name = "Alice"});
+                h.users.put(tx, User{.id = "user:2", .email = "same@example.com", .name = "Bob"});
+            }
+        ),
+        mt::BackendError
+    );
+
+    auto rows = h.users.list();
+    EXPECT_TRUE(rows.empty());
 }

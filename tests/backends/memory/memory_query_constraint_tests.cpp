@@ -25,13 +25,13 @@ void test_memory_backend_query_current_metadata_filters_and_limits()
     session->upsert_current(collection, skipped, 3);
     session->insert_history(collection, deleted, 4);
     session->upsert_current(collection, deleted, 4);
+    session->commit_backend_transaction();
 
     auto query = mt::QuerySpec::where_json_eq("$.active", true);
     query.after_key = "user:1";
     query.limit = 1;
 
     auto rows = session->query_current_metadata(collection, query).rows;
-    session->commit_backend_transaction();
 
     EXPECT_EQ(rows.size(), std::size_t{1});
     EXPECT_EQ(rows[0].key, std::string("user:2"));

@@ -6,11 +6,13 @@
 #include "mt/backend/session.hpp"
 #include "mt/errors.hpp"
 
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 // -----------------------------------------------------------------------------
 // mt/backends/memory/session.hpp
@@ -37,12 +39,25 @@ class MemorySession final : public IBackendSession
     void commit_backend_transaction() override
     {
         require_backend_tx();
-        release_clock_if_locked();
-        in_backend_tx_ = false;
+        try
+        {
+            std::lock_guard lock(state_->mutex);
+            validate_pending_current_writes();
+            apply_pending_writes();
+            release_clock_if_locked_unlocked();
+            clear_pending_writes();
+            in_backend_tx_ = false;
+        }
+        catch (...)
+        {
+            abort_backend_transaction();
+            throw;
+        }
     }
 
     void abort_backend_transaction() noexcept override
     {
+        clear_pending_writes();
         release_clock_if_locked();
         in_backend_tx_ = false;
     }
@@ -328,19 +343,14 @@ class MemorySession final : public IBackendSession
         Version commit_version
     ) override
     {
+        require_backend_tx();
         std::lock_guard lock(state_->mutex);
-        auto& c = collection_mut(collection);
-        check_unique_constraints(c, write);
-
-        MemoryVersion version{
-            .version = commit_version,
-            .deleted = write.kind == WriteKind::Delete,
-            .value = write.value,
-            .hash = write.value_hash,
-            .key = write.key
-        };
-
-        c.history[write.key].push_back(std::move(version));
+        (void)collection_ref(collection);
+        pending_history_.push_back(
+            PendingMemoryWrite{
+                .collection = collection, .version = memory_version_from(write, commit_version)
+            }
+        );
     }
 
     void upsert_current(
@@ -349,11 +359,31 @@ class MemorySession final : public IBackendSession
         Version commit_version
     ) override
     {
+        require_backend_tx();
         std::lock_guard lock(state_->mutex);
-        auto& c = collection_mut(collection);
-        check_unique_constraints(c, write);
+        auto projected = projected_collection_for_write(collection);
+        check_unique_constraints(projected, write);
 
-        c.current[write.key] = MemoryVersion{
+        pending_current_.push_back(
+            PendingMemoryWrite{
+                .collection = collection, .version = memory_version_from(write, commit_version)
+            }
+        );
+    }
+
+  private:
+    struct PendingMemoryWrite
+    {
+        CollectionId collection = 0;
+        MemoryVersion version;
+    };
+
+    static MemoryVersion memory_version_from(
+        const WriteEnvelope& write,
+        Version commit_version
+    )
+    {
+        return MemoryVersion{
             .version = commit_version,
             .deleted = write.kind == WriteKind::Delete,
             .value = write.value,
@@ -362,7 +392,6 @@ class MemorySession final : public IBackendSession
         };
     }
 
-  private:
     void require_backend_tx() const
     {
         if (!in_backend_tx_)
@@ -379,8 +408,75 @@ class MemorySession final : public IBackendSession
         }
 
         std::lock_guard lock(state_->mutex);
+        release_clock_if_locked_unlocked();
+    }
+
+    void release_clock_if_locked_unlocked() noexcept
+    {
+        if (!owns_clock_lock_)
+        {
+            return;
+        }
+
         state_->clock_locked = false;
         owns_clock_lock_ = false;
+    }
+
+    void clear_pending_writes() noexcept
+    {
+        pending_history_.clear();
+        pending_current_.clear();
+    }
+
+    MemoryCollection projected_collection_for_write(CollectionId collection) const
+    {
+        auto projected = collection_ref(collection);
+        for (const auto& pending : pending_current_)
+        {
+            if (pending.collection == collection)
+            {
+                projected.current[pending.version.key] = pending.version;
+            }
+        }
+        return projected;
+    }
+
+    void validate_pending_current_writes() const
+    {
+        std::map<CollectionId, MemoryCollection> projected_collections;
+
+        for (const auto& pending : pending_current_)
+        {
+            auto [it, inserted] = projected_collections.emplace(
+                pending.collection, collection_ref(pending.collection)
+            );
+            auto& projected = it->second;
+            auto write = WriteEnvelope{
+                .collection = pending.collection,
+                .key = pending.version.key,
+                .kind = pending.version.deleted ? WriteKind::Delete : WriteKind::Put,
+                .value = pending.version.value,
+                .value_hash = pending.version.hash
+            };
+            check_unique_constraints(projected, write);
+            projected.current[pending.version.key] = pending.version;
+            (void)inserted;
+        }
+    }
+
+    void apply_pending_writes()
+    {
+        for (const auto& pending : pending_history_)
+        {
+            auto& c = collection_mut(pending.collection);
+            c.history[pending.version.key].push_back(pending.version);
+        }
+
+        for (const auto& pending : pending_current_)
+        {
+            auto& c = collection_mut(pending.collection);
+            c.current[pending.version.key] = pending.version;
+        }
     }
 
     const MemoryCollection& collection_ref(CollectionId id) const
@@ -405,6 +501,8 @@ class MemorySession final : public IBackendSession
 
   private:
     std::shared_ptr<MemoryState> state_;
+    std::vector<PendingMemoryWrite> pending_history_;
+    std::vector<PendingMemoryWrite> pending_current_;
     bool in_backend_tx_ = false;
     bool owns_clock_lock_ = false;
     TxId active_tx_id_;
