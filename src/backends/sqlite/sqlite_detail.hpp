@@ -503,6 +503,7 @@ struct PrivateSchemaSql
             "AND h2.document_key = h.document_key "
             "AND h2.version <= ?"
             ") "
+            "AND h.deleted = 0 "
         );
         if (has_after_key)
         {

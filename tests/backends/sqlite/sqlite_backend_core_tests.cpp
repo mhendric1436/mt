@@ -67,6 +67,31 @@ void test_sqlite_core_table_list_query_and_delete()
     std::filesystem::remove(path);
 }
 
+void test_sqlite_core_table_list_limit_skips_tombstones()
+{
+    auto path = sqlite_test_path("mt_sqlite_core_list_tombstone_limit_test.sqlite");
+    auto backend = std::make_shared<mt::backends::sqlite::SqliteBackend>(path.string());
+    mt::Database db{backend};
+    mt::TransactionProvider txs{db};
+    mt::TableProvider tables{db};
+    auto users = tables.table<SqliteUser, SqliteUserMapping>();
+
+    txs.run(
+        [&](mt::Transaction& tx)
+        {
+            users.put(tx, sqlite_user("user:1", "one@example.com"));
+            users.put(tx, sqlite_user("user:2", "two@example.com"));
+        }
+    );
+    txs.run([&](mt::Transaction& tx) { users.erase(tx, "user:1"); });
+
+    auto listed = users.list(mt::ListOptions{.limit = 1});
+    EXPECT_EQ(listed.size(), std::size_t{1});
+    EXPECT_EQ(listed[0].id, std::string("user:2"));
+
+    std::filesystem::remove(path);
+}
+
 void test_sqlite_core_transactions_reject_unique_index_conflict()
 {
     auto path = sqlite_test_path("mt_sqlite_core_unique_conflict_test.sqlite");

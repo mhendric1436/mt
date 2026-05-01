@@ -290,10 +290,8 @@ void test_sqlite_backend_list_snapshot_orders_and_paginates()
         EXPECT_EQ(rows[1].key, std::string("user:2"));
         EXPECT_EQ(rows[1].value["email"].as_string(), std::string("new@example.com"));
 
-        EXPECT_EQ(after_rows.size(), std::size_t{2});
+        EXPECT_EQ(after_rows.size(), std::size_t{1});
         EXPECT_EQ(after_rows[0].key, std::string("user:2"));
-        EXPECT_EQ(after_rows[1].key, std::string("user:3"));
-        EXPECT_TRUE(after_rows[1].deleted);
 
         EXPECT_EQ(early_rows.size(), std::size_t{2});
         EXPECT_EQ(early_rows[0].key, std::string("user:1"));

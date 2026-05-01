@@ -30,6 +30,7 @@ void test_sqlite_backend_enforces_unique_indexes();
 void test_sqlite_backend_unique_indexes_allow_same_key_update_missing_path_and_delete();
 void test_sqlite_core_transactions_persist_across_backend_instances();
 void test_sqlite_core_table_list_query_and_delete();
+void test_sqlite_core_table_list_limit_skips_tombstones();
 void test_sqlite_core_transactions_reject_unique_index_conflict();
 void test_sqlite_core_rejects_unsupported_query();
 void test_sqlite_detail_connection_executes_sql();
@@ -66,6 +67,7 @@ int main()
     test_sqlite_backend_unique_indexes_allow_same_key_update_missing_path_and_delete();
     test_sqlite_core_transactions_persist_across_backend_instances();
     test_sqlite_core_table_list_query_and_delete();
+    test_sqlite_core_table_list_limit_skips_tombstones();
     test_sqlite_core_transactions_reject_unique_index_conflict();
     test_sqlite_core_rejects_unsupported_query();
     test_sqlite_detail_connection_executes_sql();
