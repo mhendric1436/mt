@@ -4,6 +4,7 @@
 #include "mt/json_parser.hpp"
 
 #include <cassert>
+#include <cstdint>
 #include <iostream>
 
 // -----------------------------------------------------------------------------
@@ -102,6 +103,50 @@ struct Harness
     mt::Table<User, UserMapping> users = tables.table<User, UserMapping>();
 };
 
+inline mt::Hash test_hash(std::uint8_t value)
+{
+    return mt::Hash{.bytes = {value, static_cast<std::uint8_t>(value + 1)}};
+}
+
+inline mt::WriteEnvelope user_write(
+    mt::CollectionId collection,
+    std::string key,
+    std::string email,
+    bool active,
+    std::uint8_t hash
+)
+{
+    return mt::WriteEnvelope{
+        .collection = collection,
+        .key = key,
+        .kind = mt::WriteKind::Put,
+        .value = UserMapping::to_json(
+            User{
+                .id = key,
+                .email = std::move(email),
+                .name = key,
+                .active = active,
+                .login_count = 0
+            }
+        ),
+        .value_hash = test_hash(hash)
+    };
+}
+
+inline mt::WriteEnvelope delete_write(
+    mt::CollectionId collection,
+    std::string key,
+    std::uint8_t hash
+)
+{
+    return mt::WriteEnvelope{
+        .collection = collection,
+        .key = std::move(key),
+        .kind = mt::WriteKind::Delete,
+        .value_hash = test_hash(hash)
+    };
+}
+
 } // namespace test_support
 
 // -----------------------------------------------------------------------------
@@ -127,9 +172,12 @@ struct Harness
         assert(did_throw && "expected exception not thrown");                                      \
     } while (false)
 
+using test_support::delete_write;
 using test_support::Harness;
 using test_support::MigratingUserMapping;
+using test_support::test_hash;
 using test_support::User;
+using test_support::user_write;
 using test_support::UserMapping;
 
 // -----------------------------------------------------------------------------
@@ -598,6 +646,30 @@ void test_backend_contract_cleanup_tolerates_missing_active_transaction()
     session->abort_backend_transaction();
 }
 
+void test_memory_backend_active_transaction_lifecycle_allows_register_commit_and_abort()
+{
+    Harness h;
+
+    {
+        auto session = h.backend->open_session();
+        session->begin_backend_transaction();
+        auto tx_id = session->create_transaction_id();
+        session->register_active_transaction(tx_id, session->read_clock());
+        session->unregister_active_transaction("missing-transaction");
+        session->unregister_active_transaction(tx_id);
+        session->commit_backend_transaction();
+    }
+
+    {
+        auto session = h.backend->open_session();
+        session->begin_backend_transaction();
+        auto tx_id = session->create_transaction_id();
+        session->register_active_transaction(tx_id, session->read_clock());
+        session->abort_backend_transaction();
+        session->abort_backend_transaction();
+    }
+}
+
 void test_backend_contract_snapshot_reads_remain_stable_after_later_commits()
 {
     Harness h;
@@ -626,6 +698,42 @@ void test_backend_contract_snapshot_reads_remain_stable_after_later_commits()
     EXPECT_EQ(doc->value["email"].as_string(), std::string("old@example.com"));
 }
 
+void test_memory_backend_snapshot_reads_select_best_visible_version()
+{
+    Harness h;
+    auto collection = h.users.descriptor().id;
+
+    auto first = user_write(collection, "user:1", "old@example.com", true, 0x31);
+    auto second = user_write(collection, "user:1", "new@example.com", true, 0x32);
+    auto deleted = delete_write(collection, "user:1", 0x33);
+
+    auto session = h.backend->open_session();
+    session->begin_backend_transaction();
+    session->insert_history(collection, first, 1);
+    session->upsert_current(collection, first, 1);
+    session->insert_history(collection, second, 2);
+    session->upsert_current(collection, second, 2);
+    session->insert_history(collection, deleted, 3);
+    session->upsert_current(collection, deleted, 3);
+
+    auto missing = session->read_snapshot(collection, "user:1", 0);
+    auto old_doc = session->read_snapshot(collection, "user:1", 1);
+    auto new_doc = session->read_snapshot(collection, "user:1", 2);
+    auto tombstone = session->read_snapshot(collection, "user:1", 3);
+    session->commit_backend_transaction();
+
+    EXPECT_FALSE(missing.has_value());
+    EXPECT_TRUE(old_doc.has_value());
+    EXPECT_EQ(old_doc->value["email"].as_string(), std::string("old@example.com"));
+    EXPECT_EQ(old_doc->value_hash, test_hash(0x31));
+    EXPECT_TRUE(new_doc.has_value());
+    EXPECT_EQ(new_doc->value["email"].as_string(), std::string("new@example.com"));
+    EXPECT_EQ(new_doc->value_hash, test_hash(0x32));
+    EXPECT_TRUE(tombstone.has_value());
+    EXPECT_TRUE(tombstone->deleted);
+    EXPECT_EQ(tombstone->value_hash, test_hash(0x33));
+}
+
 void test_backend_contract_delete_tombstone_metadata_remains_visible()
 {
     Harness h;
@@ -643,6 +751,40 @@ void test_backend_contract_delete_tombstone_metadata_remains_visible()
 
     EXPECT_TRUE(metadata.has_value());
     EXPECT_TRUE(metadata->deleted);
+}
+
+void test_memory_backend_query_current_metadata_filters_and_limits()
+{
+    Harness h;
+    auto collection = h.users.descriptor().id;
+
+    auto user_1 = user_write(collection, "user:1", "one@example.com", true, 0x41);
+    auto user_2 = user_write(collection, "user:2", "two@example.com", true, 0x42);
+    auto skipped = user_write(collection, "user:3", "three@example.com", false, 0x43);
+    auto deleted = delete_write(collection, "user:4", 0x44);
+
+    auto session = h.backend->open_session();
+    session->begin_backend_transaction();
+    session->insert_history(collection, user_1, 1);
+    session->upsert_current(collection, user_1, 1);
+    session->insert_history(collection, user_2, 2);
+    session->upsert_current(collection, user_2, 2);
+    session->insert_history(collection, skipped, 3);
+    session->upsert_current(collection, skipped, 3);
+    session->insert_history(collection, deleted, 4);
+    session->upsert_current(collection, deleted, 4);
+
+    auto query = mt::QuerySpec::where_json_eq("$.active", true);
+    query.after_key = "user:1";
+    query.limit = 1;
+
+    auto rows = session->query_current_metadata(collection, query).rows;
+    session->commit_backend_transaction();
+
+    EXPECT_EQ(rows.size(), std::size_t{1});
+    EXPECT_EQ(rows[0].key, std::string("user:2"));
+    EXPECT_FALSE(rows[0].deleted);
+    EXPECT_EQ(rows[0].value_hash, test_hash(0x42));
 }
 
 void test_commit_semantics_history_and_current_share_commit_version()
@@ -1208,6 +1350,33 @@ void test_memory_backend_enforces_unique_indexes()
     );
 }
 
+void test_memory_backend_unique_indexes_allow_same_key_missing_path_and_delete()
+{
+    Harness h;
+    auto collection = h.users.descriptor().id;
+
+    auto first = user_write(collection, "user:1", "same@example.com", true, 0x51);
+    auto same_key = user_write(collection, "user:1", "same@example.com", false, 0x52);
+    mt::WriteEnvelope missing_path{
+        .collection = collection,
+        .key = "user:2",
+        .kind = mt::WriteKind::Put,
+        .value = mt::Json::object({{"active", true}}),
+        .value_hash = test_hash(0x53)
+    };
+    auto delete_missing = delete_write(collection, "user:3", 0x54);
+    auto conflict = user_write(collection, "user:4", "same@example.com", true, 0x55);
+
+    auto session = h.backend->open_session();
+    session->begin_backend_transaction();
+    session->upsert_current(collection, first, 1);
+    session->upsert_current(collection, same_key, 2);
+    session->upsert_current(collection, missing_path, 3);
+    session->upsert_current(collection, delete_missing, 4);
+    EXPECT_THROW_AS(session->upsert_current(collection, conflict, 5), mt::BackendError);
+    session->abort_backend_transaction();
+}
+
 void test_memory_backend_rejects_migrations()
 {
     auto backend = std::make_shared<mt::backends::memory::MemoryBackend>();
@@ -1505,8 +1674,11 @@ int main()
     test_backend_contract_commit_versions_strictly_increase();
     test_backend_contract_clock_increment_requires_lock_owner();
     test_backend_contract_cleanup_tolerates_missing_active_transaction();
+    test_memory_backend_active_transaction_lifecycle_allows_register_commit_and_abort();
     test_backend_contract_snapshot_reads_remain_stable_after_later_commits();
+    test_memory_backend_snapshot_reads_select_best_visible_version();
     test_backend_contract_delete_tombstone_metadata_remains_visible();
+    test_memory_backend_query_current_metadata_filters_and_limits();
     test_commit_semantics_history_and_current_share_commit_version();
     test_commit_semantics_delete_history_and_current_share_commit_version();
     test_commit_semantics_conflict_does_not_make_write_visible();
@@ -1536,6 +1708,7 @@ int main()
     test_memory_backend_rejects_json_contains_query();
     test_memory_backend_rejects_non_key_ordering();
     test_memory_backend_enforces_unique_indexes();
+    test_memory_backend_unique_indexes_allow_same_key_missing_path_and_delete();
     test_memory_backend_rejects_migrations();
     test_delete_hides_document();
     test_write_write_conflict_aborts_later_committer();
