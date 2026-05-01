@@ -2,7 +2,6 @@
 
 #include "../backend_test_support.hpp"
 
-#include "../../../build/generated/user.hpp"
 #include "mt/backends/memory.hpp"
 #include "mt/core.hpp"
 
@@ -16,8 +15,8 @@
 namespace memory_test_support
 {
 
-using User = mt_examples::User;
-using UserMapping = mt_examples::UserMapping;
+using User = BackendTestUser;
+using UserMapping = BackendTestUserMapping;
 
 struct MigratingUserMapping : UserMapping
 {
@@ -45,14 +44,7 @@ inline User memory_user(
     bool active = true
 )
 {
-    return User{
-        .id = std::move(id),
-        .email = std::move(email),
-        .name = "Memory Test User",
-        .tags = {},
-        .address = mt_examples::Address{.city = "Denver", .postal_code = "80202", .labels = {}},
-        .active = active
-    };
+    return backend_test_user(std::move(id), std::move(email), active, "Memory Test User");
 }
 
 inline mt::WriteEnvelope user_write(
@@ -88,13 +80,7 @@ inline mt::WriteEnvelope delete_write(
 
 inline mt::CollectionSpec user_schema_spec()
 {
-    return mt::CollectionSpec{
-        .logical_name = "schema_users",
-        .indexes = UserMapping::indexes(),
-        .schema_version = UserMapping::schema_version,
-        .key_field = std::string(UserMapping::key_field),
-        .fields = UserMapping::fields()
-    };
+    return backend_test_user_schema("schema_users");
 }
 
 } // namespace memory_test_support

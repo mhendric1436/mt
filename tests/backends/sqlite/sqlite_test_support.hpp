@@ -2,7 +2,6 @@
 
 #include "../backend_test_support.hpp"
 
-#include "../../../build/generated/user.hpp"
 #include "mt/backends/sqlite.hpp"
 #include "mt/core.hpp"
 
@@ -17,8 +16,8 @@
 #include <utility>
 #include <vector>
 
-using SqliteUser = mt_examples::User;
-using SqliteUserMapping = mt_examples::UserMapping;
+using SqliteUser = BackendTestUser;
+using SqliteUserMapping = BackendTestUserMapping;
 
 inline SqliteUser sqlite_user(
     std::string id,
@@ -26,14 +25,7 @@ inline SqliteUser sqlite_user(
     bool active = true
 )
 {
-    return SqliteUser{
-        .id = std::move(id),
-        .email = std::move(email),
-        .name = "SQLite Test User",
-        .tags = {},
-        .address = mt_examples::Address{.city = "Denver", .postal_code = "80202", .labels = {}},
-        .active = active
-    };
+    return backend_test_user(std::move(id), std::move(email), active, "SQLite Test User");
 }
 
 inline mt::Json sqlite_user_json(
@@ -42,7 +34,7 @@ inline mt::Json sqlite_user_json(
     bool active = true
 )
 {
-    return SqliteUserMapping::to_json(sqlite_user(std::move(id), std::move(email), active));
+    return backend_test_user_json(std::move(id), std::move(email), active, "SQLite Test User");
 }
 
 inline std::filesystem::path sqlite_test_path(std::string_view name)
@@ -54,11 +46,5 @@ inline std::filesystem::path sqlite_test_path(std::string_view name)
 
 inline mt::CollectionSpec sqlite_user_schema(int schema_version = 1)
 {
-    return mt::CollectionSpec{
-        .logical_name = std::string(SqliteUserMapping::table_name),
-        .indexes = SqliteUserMapping::indexes(),
-        .schema_version = schema_version,
-        .key_field = std::string(SqliteUserMapping::key_field),
-        .fields = SqliteUserMapping::fields()
-    };
+    return backend_test_user_schema(std::string(SqliteUserMapping::table_name), schema_version);
 }
