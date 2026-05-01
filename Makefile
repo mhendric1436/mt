@@ -7,6 +7,7 @@
 #   make check      # syntax-check header and run tests
 #   make memory-check # build and run memory backend tests
 #   make sqlite-check # build and run optional SQLite backend tests
+#   make postgres-check # run optional PostgreSQL backend tests when configured
 #   make format     # format source files with clang-format
 #   make docs-png   # generate PNG diagrams from PlantUML files
 #   make clean-docs # remove generated PlantUML PNG files
@@ -28,6 +29,8 @@ LDLIBS   ?=
 SQLITE_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags sqlite3 2>/dev/null)
 SQLITE_LIBS ?= $(shell $(PKG_CONFIG) --libs sqlite3 2>/dev/null)
 SQLITE_LIBS := $(if $(SQLITE_LIBS),$(SQLITE_LIBS),-lsqlite3)
+POSTGRES_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags libpq 2>/dev/null)
+POSTGRES_LIBS ?= $(shell $(PKG_CONFIG) --libs libpq 2>/dev/null)
 
 BUILD_DIR := build
 BUILD_STAMP := $(BUILD_DIR)/.dir
@@ -35,6 +38,7 @@ TEST_BIN  := $(BUILD_DIR)/mt_core_tests
 CODEGEN_TEST_BIN := $(BUILD_DIR)/mt_codegen_tests
 MEMORY_TEST_BIN := $(BUILD_DIR)/memory_backend_tests
 SQLITE_TEST_BIN := $(BUILD_DIR)/sqlite_backend_tests
+POSTGRES_TEST_BIN := $(BUILD_DIR)/postgres_backend_tests
 GENERATED_DIR := $(BUILD_DIR)/generated
 BACKEND_TEST_HEADERS := $(wildcard tests/backends/*.hpp)
 BACKEND_HEADERS := $(wildcard include/mt/backend/*.hpp)
@@ -69,15 +73,19 @@ SQLITE_BACKEND_SRC := $(wildcard src/backends/sqlite/*.cpp)
 SQLITE_BACKEND_HEADERS := $(wildcard src/backends/sqlite/*.hpp)
 SQLITE_TEST_SRC := $(wildcard tests/backends/sqlite/*.cpp)
 SQLITE_TEST_HEADERS := $(wildcard tests/backends/sqlite/*.hpp)
+POSTGRES_BACKEND_SRC := $(wildcard src/backends/postgres/*.cpp)
+POSTGRES_BACKEND_HEADERS := $(wildcard src/backends/postgres/*.hpp)
+POSTGRES_TEST_SRC := $(wildcard tests/backends/postgres/*.cpp)
+POSTGRES_TEST_HEADERS := $(wildcard tests/backends/postgres/*.hpp)
 HEADER_CHECK_SRC := src/mt_core.cpp
 CODEGEN := python3 tools/mt_codegen.py
 CODEGEN_VALIDATION_TEST := python3 tools/test_mt_codegen.py
 EXAMPLE_SCHEMA := examples/schemas/user.mt.json
 GENERATED_EXAMPLE_HEADER := $(GENERATED_DIR)/user.hpp
-FORMAT_FILES := $(CORE_HEADERS) $(HEADER_CHECK_SRC) $(TEST_SRC) $(CODEGEN_TEST_SRC) $(BACKEND_TEST_HEADERS) $(MEMORY_TEST_SRC) $(MEMORY_TEST_HEADERS) $(SQLITE_BACKEND_SRC) $(SQLITE_BACKEND_HEADERS) $(SQLITE_TEST_SRC) $(SQLITE_TEST_HEADERS)
+FORMAT_FILES := $(CORE_HEADERS) $(HEADER_CHECK_SRC) $(TEST_SRC) $(CODEGEN_TEST_SRC) $(BACKEND_TEST_HEADERS) $(MEMORY_TEST_SRC) $(MEMORY_TEST_HEADERS) $(SQLITE_BACKEND_SRC) $(SQLITE_BACKEND_HEADERS) $(SQLITE_TEST_SRC) $(SQLITE_TEST_HEADERS) $(POSTGRES_BACKEND_SRC) $(POSTGRES_BACKEND_HEADERS) $(POSTGRES_TEST_SRC) $(POSTGRES_TEST_HEADERS)
 PUML_FILES := $(wildcard docs/*.puml)
 
-.PHONY: all build test check memory-build memory-test memory-check sqlite-build sqlite-test sqlite-check codegen-examples codegen-validation header-check format docs-png clean-docs clean rebuild print-config
+.PHONY: all build test check memory-build memory-test memory-check sqlite-build sqlite-test sqlite-check postgres-build postgres-test postgres-check codegen-examples codegen-validation header-check format docs-png clean-docs clean rebuild print-config
 
 all: test
 
@@ -105,6 +113,9 @@ $(MEMORY_TEST_BIN): $(MEMORY_TEST_SRC) $(MEMORY_TEST_HEADERS) $(BACKEND_TEST_HEA
 $(SQLITE_TEST_BIN): $(SQLITE_TEST_SRC) $(SQLITE_TEST_HEADERS) $(BACKEND_TEST_HEADERS) $(SQLITE_BACKEND_SRC) $(SQLITE_BACKEND_HEADERS) $(GENERATED_EXAMPLE_HEADER) $(CORE_HEADERS) | $(BUILD_STAMP)
 	$(CXX) $(CPPFLAGS) $(SQLITE_CFLAGS) $(CXXFLAGS) $(SQLITE_TEST_SRC) $(SQLITE_BACKEND_SRC) -o $@ $(LDFLAGS) $(SQLITE_LIBS) $(LDLIBS)
 
+$(POSTGRES_TEST_BIN): $(POSTGRES_TEST_SRC) $(POSTGRES_TEST_HEADERS) $(BACKEND_TEST_HEADERS) $(POSTGRES_BACKEND_SRC) $(POSTGRES_BACKEND_HEADERS) $(GENERATED_EXAMPLE_HEADER) $(CORE_HEADERS) | $(BUILD_STAMP)
+	$(CXX) $(CPPFLAGS) $(POSTGRES_CFLAGS) $(CXXFLAGS) $(POSTGRES_TEST_SRC) $(POSTGRES_BACKEND_SRC) -o $@ $(LDFLAGS) $(POSTGRES_LIBS) $(LDLIBS)
+
 test: build
 	./$(TEST_BIN)
 	./$(CODEGEN_TEST_BIN)
@@ -125,6 +136,21 @@ sqlite-test: sqlite-build
 	./$(SQLITE_TEST_BIN)
 
 sqlite-check: sqlite-test
+
+postgres-build: $(POSTGRES_TEST_BIN)
+
+postgres-test: postgres-build
+	./$(POSTGRES_TEST_BIN)
+
+postgres-check:
+ifndef MT_POSTGRES_TEST_DSN
+	@echo "Skipping postgres-check: MT_POSTGRES_TEST_DSN is not set"
+else ifeq ($(POSTGRES_LIBS),)
+	@echo "postgres-check requires libpq pkg-config metadata; set PKG_CONFIG_PATH if libpq is installed outside the default search path"
+	@exit 1
+else
+	$(MAKE) postgres-test
+endif
 
 codegen-examples: $(GENERATED_EXAMPLE_HEADER)
 
@@ -163,3 +189,6 @@ print-config:
 	@echo "LDLIBS   = $(LDLIBS)"
 	@echo "SQLITE_CFLAGS = $(SQLITE_CFLAGS)"
 	@echo "SQLITE_LIBS = $(SQLITE_LIBS)"
+	@echo "POSTGRES_CFLAGS = $(POSTGRES_CFLAGS)"
+	@echo "POSTGRES_LIBS = $(POSTGRES_LIBS)"
+	@echo "MT_POSTGRES_TEST_DSN = $(MT_POSTGRES_TEST_DSN)"

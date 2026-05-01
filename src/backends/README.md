@@ -9,4 +9,5 @@ Current backend status:
 - `sqlite`: dependency-free public skeleton in `include/mt/backends/sqlite.hpp`;
   implementation planned under `src/backends/sqlite/`
 - `postgres`: dependency-free public skeleton in `include/mt/backends/postgres.hpp`;
-  implementation planned under `src/backends/postgres/`
+  implementation planned under `src/backends/postgres/`; optional tests are gated by
+  `MT_POSTGRES_TEST_DSN`
