@@ -1,7 +1,23 @@
-#include <libpq-fe.h>
+#include "../../../src/backends/postgres/postgres_connection.hpp"
 
 #include <cstdlib>
 #include <iostream>
+#include <string_view>
+
+namespace
+{
+void test_postgres_connection_executes_query(std::string_view dsn)
+{
+    auto connection = mt::backends::postgres::detail::Connection::open(dsn);
+    auto result = connection.exec_params("SELECT $1::text", {"mt"}, {PGRES_TUPLES_OK});
+
+    if (result.rows() != 1 || result.columns() != 1 || result.value(0, 0) != "mt")
+    {
+        throw mt::BackendError("postgres connection wrapper returned unexpected query result");
+    }
+}
+
+} // namespace
 
 int main()
 {
@@ -12,15 +28,16 @@ int main()
         return 0;
     }
 
-    auto* connection = PQconnectdb(dsn);
-    if (PQstatus(connection) != CONNECTION_OK)
+    try
     {
-        std::cerr << "PostgreSQL connection failed: " << PQerrorMessage(connection);
-        PQfinish(connection);
+        test_postgres_connection_executes_query(dsn);
+    }
+    catch (const mt::Error& error)
+    {
+        std::cerr << error.what() << "\n";
         return 1;
     }
 
-    PQfinish(connection);
-    std::cout << "Postgres backend test harness connected; backend tests pending.\n";
+    std::cout << "Postgres backend connection tests passed.\n";
     return 0;
 }
