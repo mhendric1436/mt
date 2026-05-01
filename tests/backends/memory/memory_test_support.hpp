@@ -2,6 +2,7 @@
 
 #include "../backend_test_support.hpp"
 
+#include "../../../build/generated/user.hpp"
 #include "mt/backends/memory.hpp"
 #include "mt/core.hpp"
 
@@ -15,55 +16,8 @@
 namespace memory_test_support
 {
 
-struct User
-{
-    std::string id;
-    std::string email;
-    std::string name;
-    bool active = true;
-    std::int64_t login_count = 0;
-};
-
-struct UserMapping
-{
-    static constexpr std::string_view table_name = "users";
-    static constexpr int schema_version = 1;
-
-    static std::string key(const User& user)
-    {
-        return user.id;
-    }
-
-    static mt::Json to_json(const User& user)
-    {
-        return mt::Json::object(
-            {{"id", user.id},
-             {"email", user.email},
-             {"name", user.name},
-             {"active", user.active},
-             {"login_count", user.login_count}}
-        );
-    }
-
-    static User from_json(const mt::Json& json)
-    {
-        return User{
-            .id = json["id"].as_string(),
-            .email = json["email"].as_string(),
-            .name = json["name"].as_string(),
-            .active = json["active"].as_bool(),
-            .login_count = json["login_count"].as_int64()
-        };
-    }
-
-    static std::vector<mt::IndexSpec> indexes()
-    {
-        return {
-            mt::IndexSpec::json_path_index("email", "$.email").make_unique(),
-            mt::IndexSpec::json_path_index("active", "$.active")
-        };
-    }
-};
+using User = mt_examples::User;
+using UserMapping = mt_examples::UserMapping;
 
 struct MigratingUserMapping : UserMapping
 {
@@ -90,6 +44,22 @@ inline mt::Hash test_hash(std::uint8_t value)
     return mt::Hash{.bytes = {value, static_cast<std::uint8_t>(value + 1)}};
 }
 
+inline User memory_user(
+    std::string id,
+    std::string email,
+    bool active = true
+)
+{
+    return User{
+        .id = std::move(id),
+        .email = std::move(email),
+        .name = "Memory Test User",
+        .tags = {},
+        .address = mt_examples::Address{.city = "Denver", .postal_code = "80202", .labels = {}},
+        .active = active
+    };
+}
+
 inline mt::WriteEnvelope user_write(
     mt::CollectionId collection,
     std::string key,
@@ -102,15 +72,7 @@ inline mt::WriteEnvelope user_write(
         .collection = collection,
         .key = key,
         .kind = mt::WriteKind::Put,
-        .value = UserMapping::to_json(
-            User{
-                .id = key,
-                .email = std::move(email),
-                .name = key,
-                .active = active,
-                .login_count = 0
-            }
-        ),
+        .value = UserMapping::to_json(memory_user(key, std::move(email), active)),
         .value_hash = test_hash(hash)
     };
 }
@@ -133,12 +95,10 @@ inline mt::CollectionSpec user_schema_spec()
 {
     return mt::CollectionSpec{
         .logical_name = "schema_users",
-        .schema_version = 1,
-        .key_field = "id",
-        .fields = {
-            mt::FieldSpec::string("id"), mt::FieldSpec::string("email"),
-            mt::FieldSpec::boolean("active").mark_required(false)
-        }
+        .indexes = UserMapping::indexes(),
+        .schema_version = UserMapping::schema_version,
+        .key_field = std::string(UserMapping::key_field),
+        .fields = UserMapping::fields()
     };
 }
 

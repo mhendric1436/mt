@@ -4,7 +4,6 @@ using memory_test_support::Harness;
 using memory_test_support::MigratingUserMapping;
 using memory_test_support::User;
 using memory_test_support::user_schema_spec;
-using memory_test_support::UserMapping;
 
 void test_memory_backend_reports_capabilities()
 {
@@ -119,7 +118,7 @@ void test_memory_backend_accepts_optional_field_schema_change()
     auto initial = user_schema_spec();
     auto requested = user_schema_spec();
     requested.schema_version = 2;
-    requested.fields.push_back(mt::FieldSpec::optional("nickname", mt::FieldType::String));
+    requested.fields.push_back(mt::FieldSpec::optional("nickname_extra", mt::FieldType::String));
 
     backend.ensure_collection(initial);
     auto descriptor = backend.ensure_collection(requested);
@@ -127,9 +126,9 @@ void test_memory_backend_accepts_optional_field_schema_change()
 
     EXPECT_EQ(descriptor.schema_version, 2);
     EXPECT_TRUE(snapshot.has_value());
-    EXPECT_EQ(snapshot->fields.size(), std::size_t{4});
-    EXPECT_EQ(snapshot->fields[3].name, std::string("nickname"));
-    EXPECT_EQ(snapshot->fields[3].type, mt::FieldType::Optional);
+    EXPECT_EQ(snapshot->fields.size(), std::size_t{9});
+    EXPECT_EQ(snapshot->fields[8].name, std::string("nickname_extra"));
+    EXPECT_EQ(snapshot->fields[8].type, mt::FieldType::Optional);
 }
 
 void test_memory_backend_accepts_defaulted_field_schema_change()
@@ -139,7 +138,7 @@ void test_memory_backend_accepts_defaulted_field_schema_change()
     auto requested = user_schema_spec();
     requested.schema_version = 2;
     requested.fields.push_back(
-        mt::FieldSpec::int64("login_count").with_default(mt::Json(std::int64_t{0}))
+        mt::FieldSpec::int64("extra_login_count").with_default(mt::Json(std::int64_t{0}))
     );
 
     backend.ensure_collection(initial);
@@ -148,22 +147,22 @@ void test_memory_backend_accepts_defaulted_field_schema_change()
 
     EXPECT_EQ(descriptor.schema_version, 2);
     EXPECT_TRUE(snapshot.has_value());
-    EXPECT_EQ(snapshot->fields.size(), std::size_t{4});
-    EXPECT_EQ(snapshot->fields[3].name, std::string("login_count"));
-    EXPECT_TRUE(snapshot->fields[3].has_default);
-    EXPECT_EQ(snapshot->fields[3].default_value, mt::Json(std::int64_t{0}));
+    EXPECT_EQ(snapshot->fields.size(), std::size_t{9});
+    EXPECT_EQ(snapshot->fields[8].name, std::string("extra_login_count"));
+    EXPECT_TRUE(snapshot->fields[8].has_default);
+    EXPECT_EQ(snapshot->fields[8].default_value, mt::Json(std::int64_t{0}));
 }
 
 void test_memory_backend_accepts_nested_object_schema_change()
 {
     mt::backends::memory::MemoryBackend backend;
     auto initial = user_schema_spec();
-    initial.fields.push_back(mt::FieldSpec::object("address", {mt::FieldSpec::string("city")}));
+    initial.fields.push_back(mt::FieldSpec::object("profile", {mt::FieldSpec::string("title")}));
     auto requested = initial;
     requested.schema_version = 2;
     requested.fields.back() = mt::FieldSpec::object(
-        "address",
-        {mt::FieldSpec::string("city"), mt::FieldSpec::string("unit").mark_required(false)}
+        "profile",
+        {mt::FieldSpec::string("title"), mt::FieldSpec::string("unit").mark_required(false)}
     );
 
     backend.ensure_collection(initial);
@@ -172,8 +171,8 @@ void test_memory_backend_accepts_nested_object_schema_change()
 
     EXPECT_EQ(descriptor.schema_version, 2);
     EXPECT_TRUE(snapshot.has_value());
-    EXPECT_EQ(snapshot->fields[3].fields.size(), std::size_t{2});
-    EXPECT_EQ(snapshot->fields[3].fields[1].name, std::string("unit"));
+    EXPECT_EQ(snapshot->fields[8].fields.size(), std::size_t{2});
+    EXPECT_EQ(snapshot->fields[8].fields[1].name, std::string("unit"));
 }
 
 void test_memory_backend_rejects_key_field_schema_change()
@@ -216,14 +215,14 @@ void test_memory_backend_rejects_required_added_field_schema_change()
     auto initial = user_schema_spec();
     auto requested = user_schema_spec();
     requested.schema_version = 2;
-    requested.fields.push_back(mt::FieldSpec::string("name"));
+    requested.fields.push_back(mt::FieldSpec::string("display_name"));
 
     backend.ensure_collection(initial);
     EXPECT_THROW_AS(backend.ensure_collection(requested), mt::BackendError);
 
     auto snapshot = backend.schema_snapshot("schema_users");
     EXPECT_TRUE(snapshot.has_value());
-    EXPECT_EQ(snapshot->fields.size(), std::size_t{3});
+    EXPECT_EQ(snapshot->fields.size(), std::size_t{8});
     EXPECT_EQ(snapshot->schema_version, 1);
 }
 
