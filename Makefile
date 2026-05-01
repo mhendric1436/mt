@@ -34,6 +34,7 @@ TEST_BIN  := $(BUILD_DIR)/mt_core_tests
 CODEGEN_TEST_BIN := $(BUILD_DIR)/mt_codegen_tests
 SQLITE_TEST_BIN := $(BUILD_DIR)/sqlite_backend_tests
 GENERATED_DIR := $(BUILD_DIR)/generated
+MEMORY_BACKEND_HEADERS := $(wildcard include/mt/backends/memory/*.hpp)
 
 CORE_HEADER := include/mt/core.hpp
 CORE_HEADERS := \
@@ -51,6 +52,7 @@ CORE_HEADERS := \
 	include/mt/transaction.hpp \
 	include/mt/table.hpp \
 	include/mt/backends/memory.hpp \
+	$(MEMORY_BACKEND_HEADERS) \
 	include/mt/backends/sqlite.hpp \
 	include/mt/backends/postgres.hpp \
 	$(CORE_HEADER)
