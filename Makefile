@@ -5,6 +5,7 @@
 #   make build      # build test binary
 #   make test       # build and run tests
 #   make check      # syntax-check header and run tests
+#   make memory-check # build and run memory backend tests
 #   make sqlite-check # build and run optional SQLite backend tests
 #   make format     # format source files with clang-format
 #   make docs-png   # generate PNG diagrams from PlantUML files
@@ -32,6 +33,7 @@ BUILD_DIR := build
 BUILD_STAMP := $(BUILD_DIR)/.dir
 TEST_BIN  := $(BUILD_DIR)/mt_core_tests
 CODEGEN_TEST_BIN := $(BUILD_DIR)/mt_codegen_tests
+MEMORY_TEST_BIN := $(BUILD_DIR)/memory_backend_tests
 SQLITE_TEST_BIN := $(BUILD_DIR)/sqlite_backend_tests
 GENERATED_DIR := $(BUILD_DIR)/generated
 MEMORY_BACKEND_HEADERS := $(wildcard include/mt/backends/memory/*.hpp)
@@ -58,6 +60,8 @@ CORE_HEADERS := \
 	$(CORE_HEADER)
 TEST_SRC    := tests/mt_core_tests.cpp
 CODEGEN_TEST_SRC := tests/mt_codegen_tests.cpp
+MEMORY_TEST_SRC := $(wildcard tests/backends/memory/*.cpp)
+MEMORY_TEST_HEADERS := $(wildcard tests/backends/memory/*.hpp)
 SQLITE_BACKEND_SRC := $(wildcard src/backends/sqlite/*.cpp)
 SQLITE_BACKEND_HEADERS := $(wildcard src/backends/sqlite/*.hpp)
 SQLITE_TEST_SRC := $(wildcard tests/backends/sqlite/*.cpp)
@@ -67,14 +71,14 @@ CODEGEN := python3 tools/mt_codegen.py
 CODEGEN_VALIDATION_TEST := python3 tools/test_mt_codegen.py
 EXAMPLE_SCHEMA := examples/schemas/user.mt.json
 GENERATED_EXAMPLE_HEADER := $(GENERATED_DIR)/user.hpp
-FORMAT_FILES := $(CORE_HEADERS) $(HEADER_CHECK_SRC) $(TEST_SRC) $(CODEGEN_TEST_SRC) $(SQLITE_BACKEND_SRC) $(SQLITE_BACKEND_HEADERS) $(SQLITE_TEST_SRC) $(SQLITE_TEST_HEADERS)
+FORMAT_FILES := $(CORE_HEADERS) $(HEADER_CHECK_SRC) $(TEST_SRC) $(CODEGEN_TEST_SRC) $(MEMORY_TEST_SRC) $(MEMORY_TEST_HEADERS) $(SQLITE_BACKEND_SRC) $(SQLITE_BACKEND_HEADERS) $(SQLITE_TEST_SRC) $(SQLITE_TEST_HEADERS)
 PUML_FILES := $(wildcard docs/*.puml)
 
-.PHONY: all build test check sqlite-build sqlite-test sqlite-check codegen-examples codegen-validation header-check format docs-png clean-docs clean rebuild print-config
+.PHONY: all build test check memory-build memory-test memory-check sqlite-build sqlite-test sqlite-check codegen-examples codegen-validation header-check format docs-png clean-docs clean rebuild print-config
 
 all: test
 
-build: $(TEST_BIN) $(CODEGEN_TEST_BIN)
+build: $(TEST_BIN) $(CODEGEN_TEST_BIN) $(MEMORY_TEST_BIN)
 
 $(BUILD_STAMP):
 	mkdir -p $(BUILD_DIR)
@@ -92,14 +96,25 @@ $(GENERATED_EXAMPLE_HEADER): $(EXAMPLE_SCHEMA) tools/mt_codegen.py | $(GENERATED
 $(CODEGEN_TEST_BIN): $(CODEGEN_TEST_SRC) $(GENERATED_EXAMPLE_HEADER) $(CORE_HEADERS) | $(BUILD_STAMP)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(CODEGEN_TEST_SRC) -o $@ $(LDFLAGS) $(LDLIBS)
 
+$(MEMORY_TEST_BIN): $(MEMORY_TEST_SRC) $(MEMORY_TEST_HEADERS) $(CORE_HEADERS) | $(BUILD_STAMP)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(MEMORY_TEST_SRC) -o $@ $(LDFLAGS) $(LDLIBS)
+
 $(SQLITE_TEST_BIN): $(SQLITE_TEST_SRC) $(SQLITE_TEST_HEADERS) $(SQLITE_BACKEND_SRC) $(SQLITE_BACKEND_HEADERS) $(GENERATED_EXAMPLE_HEADER) $(CORE_HEADERS) | $(BUILD_STAMP)
 	$(CXX) $(CPPFLAGS) $(SQLITE_CFLAGS) $(CXXFLAGS) $(SQLITE_TEST_SRC) $(SQLITE_BACKEND_SRC) -o $@ $(LDFLAGS) $(SQLITE_LIBS) $(LDLIBS)
 
 test: build
 	./$(TEST_BIN)
 	./$(CODEGEN_TEST_BIN)
+	./$(MEMORY_TEST_BIN)
 
 check: codegen-examples codegen-validation header-check test
+
+memory-build: $(MEMORY_TEST_BIN)
+
+memory-test: memory-build
+	./$(MEMORY_TEST_BIN)
+
+memory-check: memory-test
 
 sqlite-build: $(SQLITE_TEST_BIN)
 
