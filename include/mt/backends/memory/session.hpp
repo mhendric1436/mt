@@ -44,8 +44,9 @@ class MemorySession final : public IBackendSession
             std::lock_guard lock(state_->mutex);
             auto projected = project_pending_writes();
             commit_projected_writes(projected);
+            publish_pending_commit_version();
             release_clock_if_locked_unlocked();
-            clear_pending_writes();
+            clear_pending_commit_state();
             in_backend_tx_ = false;
         }
         catch (...)
@@ -57,7 +58,7 @@ class MemorySession final : public IBackendSession
 
     void abort_backend_transaction() noexcept override
     {
-        clear_pending_writes();
+        clear_pending_commit_state();
         release_clock_if_locked();
         in_backend_tx_ = false;
     }
@@ -87,7 +88,11 @@ class MemorySession final : public IBackendSession
         {
             throw BackendError("clock must be locked before increment");
         }
-        return ++state_->clock;
+        if (!pending_commit_version_)
+        {
+            pending_commit_version_ = state_->clock + 1;
+        }
+        return *pending_commit_version_;
     }
 
     TxId create_transaction_id() override
@@ -422,10 +427,19 @@ class MemorySession final : public IBackendSession
         owns_clock_lock_ = false;
     }
 
-    void clear_pending_writes() noexcept
+    void clear_pending_commit_state() noexcept
     {
         pending_history_.clear();
         pending_current_.clear();
+        pending_commit_version_.reset();
+    }
+
+    void publish_pending_commit_version()
+    {
+        if (pending_commit_version_)
+        {
+            state_->clock = *pending_commit_version_;
+        }
     }
 
     MemoryCollection projected_collection_for_write(CollectionId collection) const
@@ -536,6 +550,7 @@ class MemorySession final : public IBackendSession
     std::shared_ptr<MemoryState> state_;
     std::vector<PendingMemoryWrite> pending_history_;
     std::vector<PendingMemoryWrite> pending_current_;
+    std::optional<Version> pending_commit_version_;
     bool in_backend_tx_ = false;
     bool owns_clock_lock_ = false;
     TxId active_tx_id_;

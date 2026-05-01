@@ -69,6 +69,8 @@ void test_memory_backend_failed_multi_write_commit_publishes_no_partial_writes()
 {
     Harness h;
 
+    EXPECT_EQ(h.backend->open_session()->read_clock(), mt::Version{0});
+
     EXPECT_THROW_AS(
         h.txs.run(
             [&](mt::Transaction& tx)
@@ -82,4 +84,30 @@ void test_memory_backend_failed_multi_write_commit_publishes_no_partial_writes()
 
     auto rows = h.users.list();
     EXPECT_TRUE(rows.empty());
+    EXPECT_EQ(h.backend->open_session()->read_clock(), mt::Version{0});
+}
+
+void test_memory_backend_clock_advances_only_after_successful_commit()
+{
+    Harness h;
+
+    EXPECT_THROW_AS(
+        h.txs.run(
+            [&](mt::Transaction& tx)
+            {
+                h.users.put(tx, User{.id = "user:1", .email = "same@example.com", .name = "Alice"});
+                h.users.put(tx, User{.id = "user:2", .email = "same@example.com", .name = "Bob"});
+            }
+        ),
+        mt::BackendError
+    );
+
+    EXPECT_EQ(h.backend->open_session()->read_clock(), mt::Version{0});
+
+    h.txs.run(
+        [&](mt::Transaction& tx)
+        { h.users.put(tx, User{.id = "user:3", .email = "ok@example.com", .name = "Carol"}); }
+    );
+
+    EXPECT_EQ(h.backend->open_session()->read_clock(), mt::Version{1});
 }
