@@ -2,7 +2,6 @@
 
 using memory_test_support::delete_write;
 using memory_test_support::Harness;
-using memory_test_support::test_hash;
 using memory_test_support::User;
 using memory_test_support::user_write;
 

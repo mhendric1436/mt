@@ -2,7 +2,6 @@
 
 using memory_test_support::delete_write;
 using memory_test_support::Harness;
-using memory_test_support::test_hash;
 using memory_test_support::user_write;
 
 void test_memory_backend_active_transaction_lifecycle_allows_register_commit_and_abort()

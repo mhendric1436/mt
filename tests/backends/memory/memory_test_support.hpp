@@ -39,11 +39,6 @@ struct Harness
     mt::Table<User, UserMapping> users = tables.table<User, UserMapping>();
 };
 
-inline mt::Hash test_hash(std::uint8_t value)
-{
-    return mt::Hash{.bytes = {value, static_cast<std::uint8_t>(value + 1)}};
-}
-
 inline User memory_user(
     std::string id,
     std::string email,

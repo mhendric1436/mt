@@ -62,8 +62,3 @@ inline mt::CollectionSpec sqlite_user_schema(int schema_version = 1)
         .fields = SqliteUserMapping::fields()
     };
 }
-
-inline mt::Hash test_hash(std::uint8_t value)
-{
-    return mt::Hash{.bytes = {value, static_cast<std::uint8_t>(value + 1)}};
-}

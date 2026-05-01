@@ -1,6 +1,9 @@
 #pragma once
 
+#include "mt/hash.hpp"
+
 #include <cassert>
+#include <cstdint>
 
 #define EXPECT_TRUE(expr) assert((expr))
 #define EXPECT_FALSE(expr) assert(!(expr))
@@ -20,3 +23,8 @@
         }                                                                                          \
         assert(did_throw && "expected exception not thrown");                                      \
     } while (false)
+
+inline mt::Hash test_hash(std::uint8_t value)
+{
+    return mt::Hash{.bytes = {value, static_cast<std::uint8_t>(value + 1)}};
+}
