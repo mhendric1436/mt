@@ -76,10 +76,17 @@ inline CollectionDescriptor update_memory_collection(
 
     validate_memory_collection_schema_update(collection_it->second.schema, spec);
 
-    collection_it->second.schema = spec;
-    collection_it->second.indexes = spec.indexes;
-    collection_it->second.descriptor.schema_version = spec.schema_version;
-    descriptor_it->second.schema_version = spec.schema_version;
+    auto projected_collection = collection_it->second;
+    auto projected_descriptor = descriptor_it->second;
+
+    projected_collection.schema = spec;
+    projected_collection.indexes = spec.indexes;
+    projected_collection.descriptor.schema_version = spec.schema_version;
+    projected_descriptor.schema_version = spec.schema_version;
+
+    using std::swap;
+    swap(collection_it->second, projected_collection);
+    swap(descriptor_it->second, projected_descriptor);
     return descriptor_it->second;
 }
 

@@ -77,11 +77,15 @@ void test_memory_backend_updates_schema_snapshot_for_compatible_repeat_ensure()
     auto first = backend.ensure_collection(initial);
     auto second = backend.ensure_collection(requested);
     auto snapshot = backend.schema_snapshot("schema_users");
+    auto descriptor = backend.get_collection("schema_users");
 
     EXPECT_EQ(second.id, first.id);
     EXPECT_TRUE(snapshot.has_value());
     EXPECT_EQ(second.schema_version, 2);
+    EXPECT_EQ(descriptor.id, first.id);
+    EXPECT_EQ(descriptor.schema_version, second.schema_version);
     EXPECT_EQ(snapshot->schema_version, 2);
+    EXPECT_EQ(snapshot->schema_version, descriptor.schema_version);
     EXPECT_EQ(snapshot->fields.size(), std::size_t{3});
     EXPECT_EQ(snapshot->fields[2].name, std::string("nickname"));
 }
