@@ -8,6 +8,7 @@
 #   make memory-check # build and run memory backend tests
 #   make sqlite-check # build and run optional SQLite backend tests
 #   make postgres-check # run optional PostgreSQL backend tests when configured
+#   make postgres-configure-bash-profile # add local PostgreSQL exports if missing
 #   make format     # format source files with clang-format
 #   make docs-png   # generate PNG diagrams from PlantUML files
 #   make clean-docs # remove generated PlantUML PNG files
@@ -31,6 +32,13 @@ SQLITE_LIBS ?= $(shell $(PKG_CONFIG) --libs sqlite3 2>/dev/null)
 SQLITE_LIBS := $(if $(SQLITE_LIBS),$(SQLITE_LIBS),-lsqlite3)
 POSTGRES_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags libpq 2>/dev/null)
 POSTGRES_LIBS ?= $(shell $(PKG_CONFIG) --libs libpq 2>/dev/null)
+POSTGRES_TEST_DB ?= mt_test
+POSTGRES_TEST_USER ?= $(USER)
+POSTGRES_TEST_HOST ?= localhost
+POSTGRES_TEST_PORT ?= 5432
+POSTGRES_TEST_DSN ?= postgresql://$(POSTGRES_TEST_USER)@$(POSTGRES_TEST_HOST):$(POSTGRES_TEST_PORT)/$(POSTGRES_TEST_DB)
+LIBPQ_PKG_CONFIG_PATH ?= /opt/homebrew/opt/libpq/lib/pkgconfig
+BASH_PROFILE ?= $(HOME)/.bash_profile
 
 BUILD_DIR := build
 BUILD_STAMP := $(BUILD_DIR)/.dir
@@ -85,7 +93,7 @@ GENERATED_EXAMPLE_HEADER := $(GENERATED_DIR)/user.hpp
 FORMAT_FILES := $(CORE_HEADERS) $(HEADER_CHECK_SRC) $(TEST_SRC) $(CODEGEN_TEST_SRC) $(BACKEND_TEST_HEADERS) $(MEMORY_TEST_SRC) $(MEMORY_TEST_HEADERS) $(SQLITE_BACKEND_SRC) $(SQLITE_BACKEND_HEADERS) $(SQLITE_TEST_SRC) $(SQLITE_TEST_HEADERS) $(POSTGRES_BACKEND_SRC) $(POSTGRES_BACKEND_HEADERS) $(POSTGRES_TEST_SRC) $(POSTGRES_TEST_HEADERS)
 PUML_FILES := $(wildcard docs/*.puml)
 
-.PHONY: all build test check memory-build memory-test memory-check sqlite-build sqlite-test sqlite-check postgres-build postgres-test postgres-check codegen-examples codegen-validation header-check format docs-png clean-docs clean rebuild print-config
+.PHONY: all build test check memory-build memory-test memory-check sqlite-build sqlite-test sqlite-check postgres-build postgres-test postgres-check postgres-configure-bash-profile codegen-examples codegen-validation header-check format docs-png clean-docs clean rebuild print-config
 
 all: test
 
@@ -152,6 +160,21 @@ else
 	$(MAKE) postgres-test
 endif
 
+postgres-configure-bash-profile:
+	@touch "$(BASH_PROFILE)"
+	@if grep -qs '^export PKG_CONFIG_PATH=.*libpq/lib/pkgconfig' "$(BASH_PROFILE)"; then \
+		echo "PKG_CONFIG_PATH libpq export already present in $(BASH_PROFILE)"; \
+	else \
+		printf '%s\n' 'export PKG_CONFIG_PATH="$(LIBPQ_PKG_CONFIG_PATH):$$PKG_CONFIG_PATH"' >> "$(BASH_PROFILE)"; \
+		echo "Added libpq PKG_CONFIG_PATH export to $(BASH_PROFILE)"; \
+	fi
+	@if grep -qs '^export MT_POSTGRES_TEST_DSN=' "$(BASH_PROFILE)"; then \
+		echo "MT_POSTGRES_TEST_DSN export already present in $(BASH_PROFILE)"; \
+	else \
+		printf '%s\n' 'export MT_POSTGRES_TEST_DSN="$(POSTGRES_TEST_DSN)"' >> "$(BASH_PROFILE)"; \
+		echo "Added MT_POSTGRES_TEST_DSN=$(POSTGRES_TEST_DSN) to $(BASH_PROFILE)"; \
+	fi
+
 codegen-examples: $(GENERATED_EXAMPLE_HEADER)
 
 codegen-validation:
@@ -191,4 +214,7 @@ print-config:
 	@echo "SQLITE_LIBS = $(SQLITE_LIBS)"
 	@echo "POSTGRES_CFLAGS = $(POSTGRES_CFLAGS)"
 	@echo "POSTGRES_LIBS = $(POSTGRES_LIBS)"
+	@echo "POSTGRES_TEST_DSN = $(POSTGRES_TEST_DSN)"
+	@echo "LIBPQ_PKG_CONFIG_PATH = $(LIBPQ_PKG_CONFIG_PATH)"
+	@echo "BASH_PROFILE = $(BASH_PROFILE)"
 	@echo "MT_POSTGRES_TEST_DSN = $(MT_POSTGRES_TEST_DSN)"
