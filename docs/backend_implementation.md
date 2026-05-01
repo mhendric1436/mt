@@ -72,7 +72,10 @@ undo mechanism for committed mt changes.
 
 Backends must keep schema snapshots in backend-private metadata, not in user
 collections. The memory backend stores the accepted `CollectionSpec` in process-local
-state. Durable backends should use private metadata tables, for example:
+state for compatibility checks during one process lifetime. It does not need migration
+support because no memory schema or rows survive process restart; the latest process
+binary recreates tables from current mappings. Durable backends should use private
+metadata tables, for example:
 
 ```text
 mt_collections

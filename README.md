@@ -33,7 +33,8 @@ Known limitations:
   is acceptable
 - memory backend query filtering supports key-prefix and JSON equality predicates only
 - JSON contains predicates and non-key ordering are explicitly rejected by the memory backend
-- migrations are modeled but explicitly rejected by the memory backend
+- migrations are modeled but intentionally unsupported by the memory backend because
+  memory state does not persist across process restarts
 
 ## Requirements
 
@@ -347,9 +348,12 @@ Rejected changes currently include:
 - adding a required field without a default
 
 The memory backend stores accepted schema snapshots in process-local state and enforces
-the same compatibility rules. Durable backends should store snapshots in private backend
-metadata tables and apply the compare/update atomically. See `docs/backend_contract.md`
-and `docs/backend_implementation.md` for backend requirements.
+the same compatibility rules during a process lifetime. It intentionally does not
+support migrations: after a process restart there is no persisted memory schema or data
+to migrate, and tables are recreated from the latest row/mapping code in the new binary.
+Durable backends should store snapshots in private backend metadata tables and apply the
+compare/update atomically. See `docs/backend_contract.md` and
+`docs/backend_implementation.md` for backend requirements.
 
 ## Documentation Diagrams
 

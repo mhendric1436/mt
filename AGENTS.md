@@ -70,7 +70,7 @@ Repo-specific guidance:
 - Transactional point reads support read-your-own-writes.
 - Transactional `list` and `query` overlay pending transaction writes for read-your-writes semantics.
 - The memory backend supports key-prefix and JSON equality predicates, applies filtering before pagination, enforces unique indexes, and rejects unsupported query/migration features explicitly.
-- The memory backend is process-local and non-durable; it may be appropriate for application-owned caches, ephemeral projections, or single-process embedded workflows where that lifecycle is acceptable.
+- The memory backend is process-local and non-durable; it may be appropriate for application-owned caches, ephemeral projections, or single-process embedded workflows where that lifecycle is acceptable. Migrations are a non-goal for the memory backend because no memory schema or rows persist across process restarts; the latest process binary recreates tables from current mappings.
 
 ## Suggested Fix Priority
 
