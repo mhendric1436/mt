@@ -58,10 +58,12 @@ TEST_SRC    := tests/mt_core_tests.cpp
 CODEGEN_TEST_SRC := tests/mt_codegen_tests.cpp
 SQLITE_BACKEND_SRC := \
 	src/backends/sqlite/sqlite_backend.cpp \
+	src/backends/sqlite/sqlite_constraints.cpp \
 	src/backends/sqlite/sqlite_document.cpp \
 	src/backends/sqlite/sqlite_schema.cpp \
 	src/backends/sqlite/sqlite_state.cpp
 SQLITE_BACKEND_HEADERS := \
+	src/backends/sqlite/sqlite_constraints.hpp \
 	src/backends/sqlite/sqlite_detail.hpp \
 	src/backends/sqlite/sqlite_document.hpp \
 	src/backends/sqlite/sqlite_schema.hpp \
