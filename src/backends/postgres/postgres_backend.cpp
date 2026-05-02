@@ -44,7 +44,11 @@ PostgresBackend::PostgresBackend(std::string dsn)
 BackendCapabilities PostgresBackend::capabilities() const
 {
     auto capabilities = BackendCapabilities{};
-    capabilities.query.order_by_key = false;
+    capabilities.query.key_prefix = true;
+    capabilities.query.json_equals = true;
+    capabilities.query.order_by_key = true;
+    capabilities.schema.json_indexes = true;
+    capabilities.schema.unique_indexes = true;
     return capabilities;
 }
 

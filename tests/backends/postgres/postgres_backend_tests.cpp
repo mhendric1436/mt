@@ -3,10 +3,12 @@
 #include "../backend_test_support.hpp"
 
 #include "mt/backends/postgres.hpp"
+#include "mt/core.hpp"
 #include "mt/json_parser.hpp"
 
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -54,21 +56,23 @@ void test_postgres_connection_executes_query(std::string_view dsn)
     }
 }
 
-void require_postgres_backend_capabilities_are_pending(const mt::BackendCapabilities& capabilities)
+void require_postgres_backend_capabilities_match_implemented_features(
+    const mt::BackendCapabilities& capabilities
+)
 {
-    if (capabilities.query.key_prefix || capabilities.query.json_equals ||
-        capabilities.query.json_contains || capabilities.query.order_by_key ||
-        capabilities.query.custom_ordering || capabilities.schema.json_indexes ||
-        capabilities.schema.unique_indexes || capabilities.schema.migrations)
+    if (!capabilities.query.key_prefix || !capabilities.query.json_equals ||
+        capabilities.query.json_contains || !capabilities.query.order_by_key ||
+        capabilities.query.custom_ordering || !capabilities.schema.json_indexes ||
+        !capabilities.schema.unique_indexes || capabilities.schema.migrations)
     {
-        throw mt::BackendError("postgres backend reports capabilities before implementation");
+        throw mt::BackendError("postgres backend capabilities do not match implemented features");
     }
 }
 
 void test_postgres_backend_entry_points(std::string_view dsn)
 {
     auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
-    require_postgres_backend_capabilities_are_pending(backend.capabilities());
+    require_postgres_backend_capabilities_match_implemented_features(backend.capabilities());
     backend.bootstrap(mt::BootstrapSpec{});
 
     auto session = backend.open_session();
@@ -838,6 +842,97 @@ void test_postgres_backend_unique_indexes_allow_same_key_missing_path_and_delete
     session->commit_backend_transaction();
 }
 
+void test_postgres_core_transaction_table_round_trips_generated_user(std::string_view dsn)
+{
+    auto backend = std::make_shared<mt::backends::postgres::PostgresBackend>(std::string(dsn));
+    mt::Database db{backend};
+    mt::TransactionProvider txs{db};
+    mt::TableProvider tables{db};
+    auto users = tables.table<BackendTestUser, BackendTestUserMapping>();
+
+    auto saved = backend_test_user("user:1", "one@example.com", true, "Postgres Test User");
+    saved.nickname = std::string("one");
+    saved.tags = {"postgres", "generated"};
+    saved.address.unit = std::string("5A");
+    saved.address.labels = {"home"};
+    saved.login_count = 3;
+
+    txs.run(
+        [&](mt::Transaction& tx)
+        {
+            users.put(tx, saved);
+            users.put(tx, backend_test_user("user:2", "two@example.com", false, "Postgres Two"));
+            users.put(tx, backend_test_user("other:1", "other@example.com", true, "Other"));
+
+            auto pending = users.require(tx, "user:1");
+            if (pending != saved)
+            {
+                throw mt::BackendError("postgres transaction did not read pending generated row");
+            }
+
+            auto pending_query = users.query(tx, mt::QuerySpec::key_prefix("user:"));
+            if (pending_query.size() != 2)
+            {
+                throw mt::BackendError("postgres transaction query did not read pending rows");
+            }
+        }
+    );
+
+    auto loaded = users.require("user:1");
+    if (loaded != saved)
+    {
+        throw mt::BackendError("postgres generated row did not round-trip through table API");
+    }
+
+    auto listed = users.list(mt::ListOptions{.limit = 2});
+    if (listed.size() != 2 || listed[0].id != "other:1" || listed[1].id != "user:1")
+    {
+        throw mt::BackendError("postgres table list returned unexpected rows");
+    }
+
+    auto queried = users.query(mt::QuerySpec::key_prefix("user:"));
+    if (queried.size() != 2 || queried[0].id != "user:1" || queried[1].id != "user:2")
+    {
+        throw mt::BackendError("postgres table query returned unexpected rows");
+    }
+
+    txs.run([&](mt::Transaction& tx) { users.erase(tx, "user:1"); });
+    if (users.get("user:1").has_value())
+    {
+        throw mt::BackendError("postgres table erase did not hide deleted row");
+    }
+}
+
+void test_postgres_core_transactions_reject_unique_index_conflict(std::string_view dsn)
+{
+    auto backend = std::make_shared<mt::backends::postgres::PostgresBackend>(std::string(dsn));
+    mt::Database db{backend};
+    mt::TransactionProvider txs{db};
+    mt::TableProvider tables{db};
+    auto users = tables.table<BackendTestUser, BackendTestUserMapping>();
+
+    txs.run([&](mt::Transaction& tx)
+            { users.put(tx, backend_test_user("unique:1", "same@example.com", true, "First")); });
+
+    auto threw = false;
+    try
+    {
+        txs.run(
+            [&](mt::Transaction& tx)
+            { users.put(tx, backend_test_user("unique:2", "same@example.com", true, "Second")); }
+        );
+    }
+    catch (const mt::BackendError&)
+    {
+        threw = true;
+    }
+
+    if (!threw || users.get("unique:2").has_value())
+    {
+        throw mt::BackendError("postgres table API accepted unique index conflict");
+    }
+}
+
 void test_postgres_bootstrap_creates_private_tables(std::string_view dsn)
 {
     auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
@@ -955,6 +1050,8 @@ int main()
         test_postgres_backend_query_rejects_unsupported_features(dsn);
         test_postgres_backend_enforces_unique_indexes(dsn);
         test_postgres_backend_unique_indexes_allow_same_key_missing_path_and_delete(dsn);
+        test_postgres_core_transaction_table_round_trips_generated_user(dsn);
+        test_postgres_core_transactions_reject_unique_index_conflict(dsn);
         test_postgres_collection_metadata_round_trips(dsn);
         test_postgres_rejects_incompatible_schema_change(dsn);
     }
