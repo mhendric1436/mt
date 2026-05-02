@@ -22,6 +22,7 @@ CXX ?= c++
 CLANG_FORMAT ?= clang-format
 PKG_CONFIG ?= pkg-config
 PLANTUML ?= plantuml
+SHELL := /bin/bash
 
 CXXFLAGS ?= -std=c++20 -O0 -g -Wall -Wextra -Wpedantic
 CPPFLAGS ?= -Iinclude
@@ -30,8 +31,6 @@ LDLIBS   ?=
 SQLITE_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags sqlite3 2>/dev/null)
 SQLITE_LIBS ?= $(shell $(PKG_CONFIG) --libs sqlite3 2>/dev/null)
 SQLITE_LIBS := $(if $(SQLITE_LIBS),$(SQLITE_LIBS),-lsqlite3)
-POSTGRES_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags libpq 2>/dev/null)
-POSTGRES_LIBS ?= $(shell $(PKG_CONFIG) --libs libpq 2>/dev/null)
 POSTGRES_TEST_DB ?= mt_test
 POSTGRES_TEST_USER ?= $(USER)
 POSTGRES_TEST_HOST ?= localhost
@@ -39,6 +38,8 @@ POSTGRES_TEST_PORT ?= 5432
 POSTGRES_TEST_DSN ?= postgresql://$(POSTGRES_TEST_USER)@$(POSTGRES_TEST_HOST):$(POSTGRES_TEST_PORT)/$(POSTGRES_TEST_DB)
 LIBPQ_PKG_CONFIG_PATH ?= /opt/homebrew/opt/libpq/lib/pkgconfig
 BASH_PROFILE ?= $(HOME)/.bash_profile
+POSTGRES_CFLAGS ?= $(shell source "$(BASH_PROFILE)" 2>/dev/null; $(PKG_CONFIG) --cflags libpq 2>/dev/null)
+POSTGRES_LIBS ?= $(shell source "$(BASH_PROFILE)" 2>/dev/null; $(PKG_CONFIG) --libs libpq 2>/dev/null)
 
 BUILD_DIR := build
 BUILD_STAMP := $(BUILD_DIR)/.dir
@@ -93,7 +94,7 @@ GENERATED_EXAMPLE_HEADER := $(GENERATED_DIR)/user.hpp
 FORMAT_FILES := $(CORE_HEADERS) $(HEADER_CHECK_SRC) $(TEST_SRC) $(CODEGEN_TEST_SRC) $(BACKEND_TEST_HEADERS) $(MEMORY_TEST_SRC) $(MEMORY_TEST_HEADERS) $(SQLITE_BACKEND_SRC) $(SQLITE_BACKEND_HEADERS) $(SQLITE_TEST_SRC) $(SQLITE_TEST_HEADERS) $(POSTGRES_BACKEND_SRC) $(POSTGRES_BACKEND_HEADERS) $(POSTGRES_TEST_SRC) $(POSTGRES_TEST_HEADERS)
 PUML_FILES := $(wildcard docs/*.puml)
 
-.PHONY: all build test check memory-build memory-test memory-check sqlite-build sqlite-test sqlite-check postgres-build postgres-test postgres-check postgres-configure-bash-profile codegen-examples codegen-validation header-check format docs-png clean-docs clean rebuild print-config
+.PHONY: all build test check memory-build memory-test memory-check sqlite-build sqlite-test sqlite-check postgres-build postgres-test postgres-check postgres-create-test-db postgres-configure-bash-profile codegen-examples codegen-validation header-check format docs-png clean-docs clean rebuild print-config
 
 all: test
 
@@ -148,17 +149,42 @@ sqlite-check: sqlite-test
 postgres-build: $(POSTGRES_TEST_BIN)
 
 postgres-test: postgres-build
+	@source "$(BASH_PROFILE)" 2>/dev/null || true; \
 	./$(POSTGRES_TEST_BIN)
 
+postgres-create-test-db:
+	@source "$(BASH_PROFILE)" 2>/dev/null || true; \
+	if [ -z "$$MT_POSTGRES_TEST_DSN" ]; then \
+		echo "Skipping postgres-create-test-db: MT_POSTGRES_TEST_DSN is not set"; \
+		exit 0; \
+	fi; \
+	if ! command -v createdb >/dev/null 2>&1; then \
+		echo "postgres-create-test-db requires createdb from PostgreSQL"; \
+		exit 1; \
+	fi; \
+	if ! command -v psql >/dev/null 2>&1; then \
+		echo "postgres-create-test-db requires psql from PostgreSQL"; \
+		exit 1; \
+	fi; \
+	if psql "postgresql://$(POSTGRES_TEST_USER)@$(POSTGRES_TEST_HOST):$(POSTGRES_TEST_PORT)/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname = '$(POSTGRES_TEST_DB)'" | grep -q 1; then \
+		echo "PostgreSQL test database $(POSTGRES_TEST_DB) already exists"; \
+	else \
+		createdb --host="$(POSTGRES_TEST_HOST)" --port="$(POSTGRES_TEST_PORT)" --username="$(POSTGRES_TEST_USER)" "$(POSTGRES_TEST_DB)"; \
+		echo "Created PostgreSQL test database $(POSTGRES_TEST_DB)"; \
+	fi
+
 postgres-check:
-ifndef MT_POSTGRES_TEST_DSN
-	@echo "Skipping postgres-check: MT_POSTGRES_TEST_DSN is not set"
-else ifeq ($(POSTGRES_LIBS),)
-	@echo "postgres-check requires libpq pkg-config metadata; set PKG_CONFIG_PATH if libpq is installed outside the default search path"
-	@exit 1
-else
-	$(MAKE) postgres-test
-endif
+	@source "$(BASH_PROFILE)" 2>/dev/null || true; \
+	if [ -z "$$MT_POSTGRES_TEST_DSN" ]; then \
+		echo "Skipping postgres-check: MT_POSTGRES_TEST_DSN is not set"; \
+		exit 0; \
+	fi; \
+	if ! $(PKG_CONFIG) --libs libpq >/dev/null 2>&1; then \
+		echo "postgres-check requires libpq pkg-config metadata; set PKG_CONFIG_PATH if libpq is installed outside the default search path"; \
+		exit 1; \
+	fi; \
+	$(MAKE) postgres-create-test-db; \
+	$(MAKE) postgres-test MT_POSTGRES_TEST_DSN="$$MT_POSTGRES_TEST_DSN" POSTGRES_CFLAGS="$$($(PKG_CONFIG) --cflags libpq)" POSTGRES_LIBS="$$($(PKG_CONFIG) --libs libpq)"
 
 postgres-configure-bash-profile:
 	@touch "$(BASH_PROFILE)"

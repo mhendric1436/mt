@@ -41,6 +41,9 @@ Known limitations:
 - C++20 compiler
 - `make`
 - `clang-format` for formatting
+- Optional PostgreSQL backend tests require PostgreSQL 18, `libpq`, `pkg-config`,
+  `createdb`, and `psql`. The `mt_test` database is used exclusively by this project
+  for testing and `make postgres-check` creates it when needed.
 
 The default build uses `c++`, but you can override it:
 
