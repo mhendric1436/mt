@@ -489,6 +489,21 @@ std::string PrivateSchemaSql::select_current_metadata_list(
     return sql;
 }
 
+std::string PrivateSchemaSql::select_current_query_candidates(bool has_after_key)
+{
+    auto sql = std::string(
+        "SELECT document_key, version, deleted, value_hash, value_json::text "
+        "FROM mt_current "
+        "WHERE collection_id = $1::bigint "
+    );
+    if (has_after_key)
+    {
+        sql += "AND document_key > $2 ";
+    }
+    sql += "ORDER BY document_key";
+    return sql;
+}
+
 std::string PrivateSchemaSql::insert_history()
 {
     return "INSERT INTO mt_history "

@@ -581,6 +581,172 @@ void test_postgres_backend_list_current_metadata_orders_and_paginates(std::strin
     }
 }
 
+void test_postgres_backend_query_snapshot_supports_key_prefix_and_json_equals(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    auto descriptor =
+        backend.ensure_collection(postgres_user_schema("postgres_query_snapshot_users"));
+
+    mt::WriteEnvelope user_1{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Put,
+        .value = backend_test_user_json("user:1", "match@example.com", true, "Postgres Test User"),
+        .value_hash = test_hash(0x91)
+    };
+    mt::WriteEnvelope user_2{
+        .collection = descriptor.id,
+        .key = "user:2",
+        .kind = mt::WriteKind::Put,
+        .value = backend_test_user_json("user:2", "skip@example.com", false, "Postgres Test User"),
+        .value_hash = test_hash(0x92)
+    };
+    mt::WriteEnvelope other{
+        .collection = descriptor.id,
+        .key = "other:1",
+        .kind = mt::WriteKind::Put,
+        .value = backend_test_user_json("other:1", "other@example.com", true, "Postgres Test User"),
+        .value_hash = test_hash(0x93)
+    };
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        session->insert_history(descriptor.id, user_1, 1);
+        session->upsert_current(descriptor.id, user_1, 1);
+        session->insert_history(descriptor.id, user_2, 2);
+        session->upsert_current(descriptor.id, user_2, 2);
+        session->insert_history(descriptor.id, other, 3);
+        session->upsert_current(descriptor.id, other, 3);
+        session->commit_backend_transaction();
+    }
+
+    auto query = mt::QuerySpec::key_prefix("user:");
+    query.predicates.push_back(
+        mt::QueryPredicate{
+            .op = mt::QueryOp::JsonEquals, .path = "$.active", .value = mt::Json(true)
+        }
+    );
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        auto rows = session->query_snapshot(descriptor.id, query, 3).rows;
+        session->commit_backend_transaction();
+
+        if (rows.size() != 1 || rows[0].key != "user:1" || !rows[0].value["active"].as_bool())
+        {
+            throw mt::BackendError("postgres snapshot query returned unexpected rows");
+        }
+    }
+}
+
+void test_postgres_backend_query_current_metadata_filters_and_limits(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    auto descriptor =
+        backend.ensure_collection(postgres_user_schema("postgres_query_current_users"));
+
+    mt::WriteEnvelope user_1{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Put,
+        .value = backend_test_user_json("user:1", "one@example.com", true, "Postgres Test User"),
+        .value_hash = test_hash(0xA1)
+    };
+    mt::WriteEnvelope user_2{
+        .collection = descriptor.id,
+        .key = "user:2",
+        .kind = mt::WriteKind::Put,
+        .value = backend_test_user_json("user:2", "two@example.com", true, "Postgres Test User"),
+        .value_hash = test_hash(0xA2)
+    };
+    mt::WriteEnvelope deleted{
+        .collection = descriptor.id,
+        .key = "user:3",
+        .kind = mt::WriteKind::Delete,
+        .value_hash = test_hash(0xA3)
+    };
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        session->insert_history(descriptor.id, user_1, 1);
+        session->upsert_current(descriptor.id, user_1, 1);
+        session->insert_history(descriptor.id, user_2, 2);
+        session->upsert_current(descriptor.id, user_2, 2);
+        session->insert_history(descriptor.id, deleted, 3);
+        session->upsert_current(descriptor.id, deleted, 3);
+        session->commit_backend_transaction();
+    }
+
+    auto query = mt::QuerySpec::where_json_eq("$.active", true);
+    query.limit = 1;
+    query.after_key = "user:1";
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        auto rows = session->query_current_metadata(descriptor.id, query).rows;
+        session->commit_backend_transaction();
+
+        if (rows.size() != 1 || rows[0].key != "user:2" || rows[0].deleted ||
+            rows[0].value_hash != test_hash(0xA2))
+        {
+            throw mt::BackendError("postgres current metadata query returned unexpected rows");
+        }
+    }
+}
+
+void test_postgres_backend_query_rejects_unsupported_features(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    auto session = backend.open_session();
+
+    mt::QuerySpec contains;
+    contains.predicates.push_back(
+        mt::QueryPredicate{
+            .op = mt::QueryOp::JsonContains,
+            .path = "$",
+            .value = postgres_user_json("user:1", "a@example.com")
+        }
+    );
+
+    session->begin_backend_transaction();
+    auto threw = false;
+    try
+    {
+        session->query_snapshot(1, contains, 0);
+    }
+    catch (const mt::BackendError&)
+    {
+        threw = true;
+    }
+    if (!threw)
+    {
+        session->abort_backend_transaction();
+        throw mt::BackendError("postgres query accepted JSON contains predicate");
+    }
+
+    auto unordered = mt::QuerySpec::key_prefix("user:");
+    unordered.order_by_key = false;
+    threw = false;
+    try
+    {
+        session->query_current_metadata(1, unordered);
+    }
+    catch (const mt::BackendError&)
+    {
+        threw = true;
+    }
+    session->abort_backend_transaction();
+
+    if (!threw)
+    {
+        throw mt::BackendError("postgres query accepted unsupported ordering");
+    }
+}
+
 void test_postgres_bootstrap_creates_private_tables(std::string_view dsn)
 {
     auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
@@ -693,6 +859,9 @@ int main()
         test_postgres_backend_point_reads_return_tombstones(dsn);
         test_postgres_backend_list_snapshot_orders_and_paginates(dsn);
         test_postgres_backend_list_current_metadata_orders_and_paginates(dsn);
+        test_postgres_backend_query_snapshot_supports_key_prefix_and_json_equals(dsn);
+        test_postgres_backend_query_current_metadata_filters_and_limits(dsn);
+        test_postgres_backend_query_rejects_unsupported_features(dsn);
         test_postgres_collection_metadata_round_trips(dsn);
         test_postgres_rejects_incompatible_schema_change(dsn);
     }

@@ -48,6 +48,7 @@ struct PrivateSchemaSql
         bool has_after_key,
         bool has_limit
     );
+    static std::string select_current_query_candidates(bool has_after_key);
     static std::string insert_history();
     static std::string upsert_current();
     static std::string select_history_row_by_collection_key();

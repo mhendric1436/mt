@@ -3,6 +3,7 @@
 #include "mt/errors.hpp"
 #include "mt/hash.hpp"
 #include "mt/json_parser.hpp"
+#include "mt/query.hpp"
 
 #include "postgres_schema.hpp"
 
@@ -16,11 +17,6 @@ namespace mt::backends::postgres
 
 namespace
 {
-[[noreturn]] void throw_session_not_implemented()
-{
-    throw BackendError("postgres backend session is not implemented");
-}
-
 Hash hash_from_text(const std::string& encoded)
 {
     if (encoded.size() % 2 != 0)
@@ -56,6 +52,22 @@ std::string write_value_text(const WriteEnvelope& write)
         return "null";
     }
     return write.value.canonical_string();
+}
+
+void validate_supported_query(const QuerySpec& query)
+{
+    if (!query.order_by_key)
+    {
+        throw BackendError("postgres backend only supports key ordering");
+    }
+
+    for (const auto& predicate : query.predicates)
+    {
+        if (predicate.op == QueryOp::JsonContains)
+        {
+            throw BackendError("postgres backend does not support JSON contains predicates");
+        }
+    }
 }
 } // namespace
 
@@ -233,20 +245,88 @@ std::optional<DocumentMetadata> PostgresSession::read_current_metadata(
 }
 
 QueryResultEnvelope PostgresSession::query_snapshot(
-    CollectionId,
-    const QuerySpec&,
-    Version
+    CollectionId collection,
+    const QuerySpec& query,
+    Version version
 )
 {
-    throw_session_not_implemented();
+    require_backend_tx();
+    validate_supported_query(query);
+
+    auto candidates = list_snapshot(collection, ListOptions{.after_key = query.after_key}, version);
+
+    QueryResultEnvelope envelope;
+    for (const auto& row : candidates.rows)
+    {
+        if (row.deleted)
+        {
+            continue;
+        }
+        if (!matches_query(row.key, row.value, query))
+        {
+            continue;
+        }
+
+        envelope.rows.push_back(row);
+        if (query.limit && envelope.rows.size() >= *query.limit)
+        {
+            break;
+        }
+    }
+
+    return envelope;
 }
 
 QueryMetadataResult PostgresSession::query_current_metadata(
-    CollectionId,
-    const QuerySpec&
+    CollectionId collection,
+    const QuerySpec& query
 )
 {
-    throw_session_not_implemented();
+    require_backend_tx();
+    validate_supported_query(query);
+
+    auto params = std::vector<std::string>{std::to_string(collection)};
+    if (query.after_key)
+    {
+        params.push_back(*query.after_key);
+    }
+
+    auto result = connection_->exec_params(
+        detail::PrivateSchemaSql::select_current_query_candidates(query.after_key.has_value()),
+        params, {PGRES_TUPLES_OK}
+    );
+
+    QueryMetadataResult envelope;
+    for (auto row = 0; row < result.rows(); ++row)
+    {
+        if (postgres_bool(result.value(row, 2)))
+        {
+            continue;
+        }
+
+        auto key = std::string(result.value(row, 0));
+        auto value = parse_json(result.value(row, 4));
+        if (!matches_query(key, value, query))
+        {
+            continue;
+        }
+
+        envelope.rows.push_back(
+            DocumentMetadata{
+                .collection = collection,
+                .key = std::move(key),
+                .version = static_cast<Version>(std::stoull(std::string(result.value(row, 1)))),
+                .deleted = false,
+                .value_hash = hash_from_text(std::string(result.value(row, 3)))
+            }
+        );
+        if (query.limit && envelope.rows.size() >= *query.limit)
+        {
+            break;
+        }
+    }
+
+    return envelope;
 }
 
 QueryResultEnvelope PostgresSession::list_snapshot(
