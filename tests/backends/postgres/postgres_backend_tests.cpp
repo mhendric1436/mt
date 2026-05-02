@@ -1,7 +1,9 @@
 #include "../../../src/backends/postgres/postgres_connection.hpp"
 #include "../../../src/backends/postgres/postgres_schema.hpp"
+#include "../backend_test_support.hpp"
 
 #include "mt/backends/postgres.hpp"
+#include "mt/json_parser.hpp"
 
 #include <cstdlib>
 #include <iostream>
@@ -20,6 +22,14 @@ mt::CollectionSpec postgres_user_schema(std::string logical_name)
         .key_field = "id",
         .fields = {mt::FieldSpec::string("id"), mt::FieldSpec::string("email")}
     };
+}
+
+mt::Json postgres_user_json(
+    std::string id,
+    std::string email
+)
+{
+    return backend_test_user_json(std::move(id), std::move(email), true, "Postgres Test User");
 }
 
 void reset_postgres_private_tables(std::string_view dsn)
@@ -253,6 +263,204 @@ void test_postgres_backend_active_transaction_metadata_registers_and_cleans_up(s
     }
 }
 
+void test_postgres_backend_document_writes_insert_history_and_current(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    auto descriptor = backend.ensure_collection(postgres_user_schema("postgres_document_users"));
+
+    mt::WriteEnvelope write{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Put,
+        .value = postgres_user_json("user:1", "a@example.com"),
+        .value_hash = test_hash(0x12)
+    };
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        session->insert_history(descriptor.id, write, 7);
+        session->upsert_current(descriptor.id, write, 7);
+        session->commit_backend_transaction();
+    }
+
+    auto connection = mt::backends::postgres::detail::Connection::open(dsn);
+    auto history = connection.exec_params(
+        mt::backends::postgres::detail::PrivateSchemaSql::select_history_row_by_collection_key(),
+        {std::to_string(descriptor.id), "user:1"}, {PGRES_TUPLES_OK}
+    );
+    if (history.rows() != 1 || history.value(0, 0) != "7" || history.value(0, 1) != "f" ||
+        history.value(0, 2) != "1213" ||
+        mt::parse_json(history.value(0, 3)) != postgres_user_json("user:1", "a@example.com"))
+    {
+        throw mt::BackendError("postgres history document write did not round-trip");
+    }
+
+    auto current = connection.exec_params(
+        mt::backends::postgres::detail::PrivateSchemaSql::select_current_row_by_collection_key(),
+        {std::to_string(descriptor.id), "user:1"}, {PGRES_TUPLES_OK}
+    );
+    if (current.rows() != 1 || current.value(0, 0) != "7" || current.value(0, 1) != "f" ||
+        current.value(0, 2) != "1213" ||
+        mt::parse_json(current.value(0, 3)) != postgres_user_json("user:1", "a@example.com"))
+    {
+        throw mt::BackendError("postgres current document write did not round-trip");
+    }
+}
+
+void test_postgres_backend_document_writes_store_delete_tombstone(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    auto descriptor = backend.ensure_collection(postgres_user_schema("postgres_document_deletes"));
+
+    mt::WriteEnvelope write{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Delete,
+        .value_hash = test_hash(0x21)
+    };
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        session->insert_history(descriptor.id, write, 8);
+        session->upsert_current(descriptor.id, write, 8);
+        session->commit_backend_transaction();
+    }
+
+    auto connection = mt::backends::postgres::detail::Connection::open(dsn);
+    auto current = connection.exec_params(
+        mt::backends::postgres::detail::PrivateSchemaSql::select_current_row_by_collection_key(),
+        {std::to_string(descriptor.id), "user:1"}, {PGRES_TUPLES_OK}
+    );
+    if (current.rows() != 1 || current.value(0, 0) != "8" || current.value(0, 1) != "t" ||
+        current.value(0, 2) != "2122" || !current.is_null(0, 3))
+    {
+        throw mt::BackendError("postgres current delete tombstone did not round-trip");
+    }
+}
+
+void test_postgres_backend_document_writes_rollback_on_abort(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    auto descriptor = backend.ensure_collection(postgres_user_schema("postgres_document_aborts"));
+
+    mt::WriteEnvelope write{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Put,
+        .value = postgres_user_json("user:1", "a@example.com"),
+        .value_hash = test_hash(0x31)
+    };
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        session->insert_history(descriptor.id, write, 9);
+        session->upsert_current(descriptor.id, write, 9);
+        session->abort_backend_transaction();
+    }
+
+    auto connection = mt::backends::postgres::detail::Connection::open(dsn);
+    auto history = connection.exec_params(
+        mt::backends::postgres::detail::PrivateSchemaSql::select_history_row_by_collection_key(),
+        {std::to_string(descriptor.id), "user:1"}, {PGRES_TUPLES_OK}
+    );
+    if (history.rows() != 0)
+    {
+        throw mt::BackendError("postgres document abort did not roll back history rows");
+    }
+}
+
+void test_postgres_backend_point_reads_return_snapshot_versions(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    auto descriptor = backend.ensure_collection(postgres_user_schema("postgres_point_read_users"));
+
+    mt::WriteEnvelope first{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Put,
+        .value = postgres_user_json("user:1", "old@example.com"),
+        .value_hash = test_hash(0x41)
+    };
+    mt::WriteEnvelope second{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Put,
+        .value = postgres_user_json("user:1", "new@example.com"),
+        .value_hash = test_hash(0x51)
+    };
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        session->insert_history(descriptor.id, first, 1);
+        session->upsert_current(descriptor.id, first, 1);
+        session->insert_history(descriptor.id, second, 2);
+        session->upsert_current(descriptor.id, second, 2);
+        session->commit_backend_transaction();
+    }
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        auto missing = session->read_snapshot(descriptor.id, "missing", 2);
+        auto old_doc = session->read_snapshot(descriptor.id, "user:1", 1);
+        auto new_doc = session->read_snapshot(descriptor.id, "user:1", 2);
+        auto current = session->read_current_metadata(descriptor.id, "user:1");
+        session->commit_backend_transaction();
+
+        if (missing || !old_doc || old_doc->version != mt::Version{1} ||
+            old_doc->value["email"].as_string() != "old@example.com" ||
+            old_doc->value_hash != test_hash(0x41) || !new_doc ||
+            new_doc->version != mt::Version{2} ||
+            new_doc->value["email"].as_string() != "new@example.com" ||
+            new_doc->value_hash != test_hash(0x51) || !current ||
+            current->version != mt::Version{2} || current->deleted ||
+            current->value_hash != test_hash(0x51))
+        {
+            throw mt::BackendError("postgres point reads returned unexpected document state");
+        }
+    }
+}
+
+void test_postgres_backend_point_reads_return_tombstones(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    auto descriptor =
+        backend.ensure_collection(postgres_user_schema("postgres_point_read_deletes"));
+
+    mt::WriteEnvelope write{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Delete,
+        .value_hash = test_hash(0x61)
+    };
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        session->insert_history(descriptor.id, write, 3);
+        session->upsert_current(descriptor.id, write, 3);
+        session->commit_backend_transaction();
+    }
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        auto doc = session->read_snapshot(descriptor.id, "user:1", 3);
+        auto current = session->read_current_metadata(descriptor.id, "user:1");
+        session->commit_backend_transaction();
+
+        if (!doc || !doc->deleted || !doc->value.is_null() || doc->value_hash != test_hash(0x61) ||
+            !current || !current->deleted || current->value_hash != test_hash(0x61))
+        {
+            throw mt::BackendError("postgres point reads did not return tombstones");
+        }
+    }
+}
+
 void test_postgres_bootstrap_creates_private_tables(std::string_view dsn)
 {
     auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
@@ -358,6 +566,11 @@ int main()
         test_postgres_backend_clock_increment_requires_lock(dsn);
         test_postgres_backend_transaction_ids_are_unique_and_persisted(dsn);
         test_postgres_backend_active_transaction_metadata_registers_and_cleans_up(dsn);
+        test_postgres_backend_document_writes_insert_history_and_current(dsn);
+        test_postgres_backend_document_writes_store_delete_tombstone(dsn);
+        test_postgres_backend_document_writes_rollback_on_abort(dsn);
+        test_postgres_backend_point_reads_return_snapshot_versions(dsn);
+        test_postgres_backend_point_reads_return_tombstones(dsn);
         test_postgres_collection_metadata_round_trips(dsn);
         test_postgres_rejects_incompatible_schema_change(dsn);
     }

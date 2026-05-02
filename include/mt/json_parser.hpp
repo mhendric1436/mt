@@ -32,6 +32,7 @@ class JsonParser
     Json parse()
     {
         auto value = parse_value();
+        skip_whitespace();
         if (position_ != input_.size())
         {
             fail();
@@ -47,6 +48,7 @@ class JsonParser
 
     bool consume(char expected)
     {
+        skip_whitespace();
         if (position_ < input_.size() && input_[position_] == expected)
         {
             ++position_;
@@ -68,8 +70,18 @@ class JsonParser
         return input_.substr(position_, value.size()) == value;
     }
 
+    void skip_whitespace()
+    {
+        while (position_ < input_.size() &&
+               std::isspace(static_cast<unsigned char>(input_[position_])))
+        {
+            ++position_;
+        }
+    }
+
     Json parse_value()
     {
+        skip_whitespace();
         if (starts_with("null"))
         {
             position_ += 4;

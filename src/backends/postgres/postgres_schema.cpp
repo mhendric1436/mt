@@ -421,6 +421,62 @@ std::string PrivateSchemaSql::count_active_transactions()
     return "SELECT COUNT(*) FROM mt_active_transactions";
 }
 
+std::string PrivateSchemaSql::select_snapshot_document()
+{
+    return "SELECT version, deleted, value_hash, value_json::text "
+           "FROM mt_history "
+           "WHERE collection_id = $1::bigint AND document_key = $2 AND version <= $3::bigint "
+           "ORDER BY version DESC LIMIT 1";
+}
+
+std::string PrivateSchemaSql::select_current_metadata()
+{
+    return "SELECT version, deleted, value_hash "
+           "FROM mt_current "
+           "WHERE collection_id = $1::bigint AND document_key = $2";
+}
+
+std::string PrivateSchemaSql::insert_history()
+{
+    return "INSERT INTO mt_history "
+           "(collection_id, document_key, version, deleted, value_hash, value_json) "
+           "VALUES ($1::bigint, $2, $3::bigint, $4::boolean, $5, "
+           "CASE WHEN $4::boolean THEN NULL ELSE $6::jsonb END)";
+}
+
+std::string PrivateSchemaSql::upsert_current()
+{
+    return "INSERT INTO mt_current "
+           "(collection_id, document_key, version, deleted, value_hash, value_json) "
+           "VALUES ($1::bigint, $2, $3::bigint, $4::boolean, $5, "
+           "CASE WHEN $4::boolean THEN NULL ELSE $6::jsonb END) "
+           "ON CONFLICT (collection_id, document_key) DO UPDATE SET "
+           "version = EXCLUDED.version, "
+           "deleted = EXCLUDED.deleted, "
+           "value_hash = EXCLUDED.value_hash, "
+           "value_json = EXCLUDED.value_json";
+}
+
+std::string PrivateSchemaSql::select_history_row_by_collection_key()
+{
+    return "SELECT version, deleted, value_hash, value_json::text "
+           "FROM mt_history "
+           "WHERE collection_id = $1::bigint AND document_key = $2 "
+           "ORDER BY version";
+}
+
+std::string PrivateSchemaSql::select_current_row_by_collection_key()
+{
+    return "SELECT version, deleted, value_hash, value_json::text "
+           "FROM mt_current "
+           "WHERE collection_id = $1::bigint AND document_key = $2";
+}
+
+std::string PrivateSchemaSql::count_history_rows()
+{
+    return "SELECT COUNT(*) FROM mt_history";
+}
+
 std::string PrivateSchemaSql::select_collection_spec_by_logical_name()
 {
     return "SELECT c.logical_name, c.schema_version, c.key_field, s.schema_json, s.indexes_json "

@@ -1,6 +1,8 @@
 #include "postgres_session.hpp"
 
 #include "mt/errors.hpp"
+#include "mt/hash.hpp"
+#include "mt/json_parser.hpp"
 
 #include "postgres_schema.hpp"
 
@@ -16,6 +18,43 @@ namespace
 [[noreturn]] void throw_session_not_implemented()
 {
     throw BackendError("postgres backend session is not implemented");
+}
+
+Hash hash_from_text(const std::string& encoded)
+{
+    if (encoded.size() % 2 != 0)
+    {
+        throw BackendError("invalid stored PostgreSQL hash");
+    }
+
+    Hash hash;
+    hash.bytes.reserve(encoded.size() / 2);
+    for (std::size_t i = 0; i < encoded.size(); i += 2)
+    {
+        hash.bytes.push_back(
+            static_cast<std::uint8_t>((hex_value(encoded[i]) << 4) | hex_value(encoded[i + 1]))
+        );
+    }
+    return hash;
+}
+
+bool postgres_bool(std::string_view encoded)
+{
+    return encoded == "t" || encoded == "true" || encoded == "1";
+}
+
+bool write_is_deleted(const WriteEnvelope& write)
+{
+    return write.kind == WriteKind::Delete;
+}
+
+std::string write_value_text(const WriteEnvelope& write)
+{
+    if (write_is_deleted(write))
+    {
+        return "null";
+    }
+    return write.value.canonical_string();
 }
 } // namespace
 
@@ -140,20 +179,56 @@ void PostgresSession::unregister_active_transaction(TxId tx_id) noexcept
 }
 
 std::optional<DocumentEnvelope> PostgresSession::read_snapshot(
-    CollectionId,
-    std::string_view,
-    Version
+    CollectionId collection,
+    std::string_view key,
+    Version version
 )
 {
-    throw_session_not_implemented();
+    require_backend_tx();
+
+    auto result = connection_->exec_params(
+        detail::PrivateSchemaSql::select_snapshot_document(),
+        {std::to_string(collection), std::string(key), std::to_string(version)}, {PGRES_TUPLES_OK}
+    );
+    if (result.rows() == 0)
+    {
+        return std::nullopt;
+    }
+
+    auto deleted = postgres_bool(result.value(0, 1));
+    return DocumentEnvelope{
+        .collection = collection,
+        .key = std::string(key),
+        .version = static_cast<Version>(std::stoull(std::string(result.value(0, 0)))),
+        .deleted = deleted,
+        .value_hash = hash_from_text(std::string(result.value(0, 2))),
+        .value = deleted ? Json::null() : parse_json(result.value(0, 3))
+    };
 }
 
 std::optional<DocumentMetadata> PostgresSession::read_current_metadata(
-    CollectionId,
-    std::string_view
+    CollectionId collection,
+    std::string_view key
 )
 {
-    throw_session_not_implemented();
+    require_backend_tx();
+
+    auto result = connection_->exec_params(
+        detail::PrivateSchemaSql::select_current_metadata(),
+        {std::to_string(collection), std::string(key)}, {PGRES_TUPLES_OK}
+    );
+    if (result.rows() == 0)
+    {
+        return std::nullopt;
+    }
+
+    return DocumentMetadata{
+        .collection = collection,
+        .key = std::string(key),
+        .version = static_cast<Version>(std::stoull(std::string(result.value(0, 0)))),
+        .deleted = postgres_bool(result.value(0, 1)),
+        .value_hash = hash_from_text(std::string(result.value(0, 2)))
+    };
 }
 
 QueryResultEnvelope PostgresSession::query_snapshot(
@@ -191,21 +266,37 @@ QueryMetadataResult PostgresSession::list_current_metadata(
 }
 
 void PostgresSession::insert_history(
-    CollectionId,
-    const WriteEnvelope&,
-    Version
+    CollectionId collection,
+    const WriteEnvelope& write,
+    Version commit_version
 )
 {
-    throw_session_not_implemented();
+    require_backend_tx();
+
+    connection_->exec_params(
+        detail::PrivateSchemaSql::insert_history(),
+        {std::to_string(collection), write.key, std::to_string(commit_version),
+         write_is_deleted(write) ? "true" : "false", hash_to_text(write.value_hash),
+         write_value_text(write)},
+        {PGRES_COMMAND_OK}
+    );
 }
 
 void PostgresSession::upsert_current(
-    CollectionId,
-    const WriteEnvelope&,
-    Version
+    CollectionId collection,
+    const WriteEnvelope& write,
+    Version commit_version
 )
 {
-    throw_session_not_implemented();
+    require_backend_tx();
+
+    connection_->exec_params(
+        detail::PrivateSchemaSql::upsert_current(),
+        {std::to_string(collection), write.key, std::to_string(commit_version),
+         write_is_deleted(write) ? "true" : "false", hash_to_text(write.value_hash),
+         write_value_text(write)},
+        {PGRES_COMMAND_OK}
+    );
 }
 
 void PostgresSession::require_backend_tx() const
