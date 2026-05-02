@@ -5,10 +5,34 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <string>
 #include <string_view>
+#include <utility>
 
 namespace
 {
+mt::CollectionSpec postgres_user_schema(std::string logical_name)
+{
+    return mt::CollectionSpec{
+        .logical_name = std::move(logical_name),
+        .indexes = {mt::IndexSpec::json_path_index("email", "$.email").make_unique()},
+        .schema_version = 1,
+        .key_field = "id",
+        .fields = {mt::FieldSpec::string("id"), mt::FieldSpec::string("email")}
+    };
+}
+
+void reset_postgres_private_tables(std::string_view dsn)
+{
+    auto connection = mt::backends::postgres::detail::Connection::open(dsn);
+    connection.exec_command(
+        "DROP TABLE IF EXISTS "
+        "mt_current, mt_history, mt_active_transactions, mt_schema_snapshots, "
+        "mt_collections, mt_clock, mt_metadata "
+        "CASCADE"
+    );
+}
+
 void test_postgres_connection_executes_query(std::string_view dsn)
 {
     auto connection = mt::backends::postgres::detail::Connection::open(dsn);
@@ -85,6 +109,59 @@ void test_postgres_bootstrap_creates_private_tables(std::string_view dsn)
     }
 }
 
+void test_postgres_collection_metadata_round_trips(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    auto initial = postgres_user_schema("postgres_schema_users");
+    auto requested = postgres_user_schema("postgres_schema_users");
+    requested.schema_version = 2;
+    requested.fields.push_back(mt::FieldSpec::string("nickname").mark_required(false));
+
+    auto first = backend.ensure_collection(initial);
+    auto second = backend.ensure_collection(requested);
+    auto descriptor = backend.get_collection("postgres_schema_users");
+
+    if (first.id != second.id || descriptor.id != first.id || descriptor.schema_version != 2)
+    {
+        throw mt::BackendError("postgres collection descriptors are inconsistent");
+    }
+
+    auto connection = mt::backends::postgres::detail::Connection::open(dsn);
+    auto snapshot =
+        mt::backends::postgres::detail::load_collection_spec(connection, "postgres_schema_users");
+    if (!snapshot || snapshot->schema_version != 2 || snapshot->fields.size() != 3 ||
+        snapshot->indexes.size() != 1 || !snapshot->indexes[0].unique)
+    {
+        throw mt::BackendError("postgres collection schema snapshot did not round-trip");
+    }
+}
+
+void test_postgres_rejects_incompatible_schema_change(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    auto initial = postgres_user_schema("postgres_incompatible_schema_users");
+    auto requested = postgres_user_schema("postgres_incompatible_schema_users");
+    requested.schema_version = 2;
+    requested.fields = {mt::FieldSpec::string("id")};
+
+    auto first = backend.ensure_collection(initial);
+    try
+    {
+        backend.ensure_collection(requested);
+    }
+    catch (const mt::BackendError&)
+    {
+        auto descriptor = backend.get_collection("postgres_incompatible_schema_users");
+        if (descriptor.schema_version != first.schema_version)
+        {
+            throw mt::BackendError("postgres incompatible schema update changed descriptor");
+        }
+        return;
+    }
+
+    throw mt::BackendError("postgres accepted incompatible schema change");
+}
+
 } // namespace
 
 int main()
@@ -99,8 +176,11 @@ int main()
     try
     {
         test_postgres_connection_executes_query(dsn);
+        reset_postgres_private_tables(dsn);
         test_postgres_backend_entry_points(dsn);
         test_postgres_bootstrap_creates_private_tables(dsn);
+        test_postgres_collection_metadata_round_trips(dsn);
+        test_postgres_rejects_incompatible_schema_change(dsn);
     }
     catch (const mt::Error& error)
     {

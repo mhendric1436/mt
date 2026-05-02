@@ -14,6 +14,8 @@ Current implementation status:
 
 - libpq connection wrapper
 - backend state and public backend entry points
+- private table bootstrap
+- collection metadata and schema snapshots
 - session placeholder for later lifecycle/clock/read/write phases
 
 Optional backend implementation and tests should use `libpq` through `pkg-config`.

@@ -6,6 +6,7 @@
 #include "postgres_state.hpp"
 
 #include "mt/errors.hpp"
+#include "mt/schema.hpp"
 
 #include <cstdlib>
 #include <memory>
@@ -65,14 +66,55 @@ void PostgresBackend::bootstrap(const BootstrapSpec& spec)
     state_->bootstrapped = true;
 }
 
-CollectionDescriptor PostgresBackend::ensure_collection(const CollectionSpec&)
+CollectionDescriptor PostgresBackend::ensure_collection(const CollectionSpec& spec)
 {
-    throw BackendError("postgres backend collection metadata is not implemented");
+    bootstrap(BootstrapSpec{});
+
+    auto connection = detail::Connection::open(state_->dsn);
+    connection.exec_command("BEGIN");
+    try
+    {
+        auto stored = detail::load_collection_spec(connection, spec.logical_name);
+        if (!stored)
+        {
+            auto descriptor = detail::insert_collection(connection, spec);
+            connection.exec_command("COMMIT");
+            return descriptor;
+        }
+
+        auto diff = diff_schemas(*stored, spec);
+        if (!diff.is_compatible())
+        {
+            const auto& change = diff.incompatible_changes.front();
+            throw BackendError(
+                "incompatible schema change for collection '" + spec.logical_name + "' at " +
+                change.path + ": " + change.message
+            );
+        }
+
+        detail::update_collection(connection, spec);
+        auto descriptor = detail::load_collection_descriptor(connection, spec.logical_name);
+        connection.exec_command("COMMIT");
+        return descriptor;
+    }
+    catch (...)
+    {
+        try
+        {
+            connection.exec_command("ROLLBACK");
+        }
+        catch (...)
+        {
+        }
+        throw;
+    }
 }
 
-CollectionDescriptor PostgresBackend::get_collection(std::string_view)
+CollectionDescriptor PostgresBackend::get_collection(std::string_view logical_name)
 {
-    throw BackendError("postgres backend collection metadata is not implemented");
+    bootstrap(BootstrapSpec{});
+    auto connection = detail::Connection::open(state_->dsn);
+    return detail::load_collection_descriptor(connection, logical_name);
 }
 
 } // namespace mt::backends::postgres
