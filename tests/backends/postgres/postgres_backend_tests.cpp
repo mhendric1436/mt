@@ -1,5 +1,7 @@
 #include "../../../src/backends/postgres/postgres_connection.hpp"
 
+#include "mt/backends/postgres.hpp"
+
 #include <cstdlib>
 #include <iostream>
 #include <string_view>
@@ -17,6 +19,41 @@ void test_postgres_connection_executes_query(std::string_view dsn)
     }
 }
 
+void require_postgres_backend_capabilities_are_pending(const mt::BackendCapabilities& capabilities)
+{
+    if (capabilities.query.key_prefix || capabilities.query.json_equals ||
+        capabilities.query.json_contains || capabilities.query.order_by_key ||
+        capabilities.query.custom_ordering || capabilities.schema.json_indexes ||
+        capabilities.schema.unique_indexes || capabilities.schema.migrations)
+    {
+        throw mt::BackendError("postgres backend reports capabilities before implementation");
+    }
+}
+
+void test_postgres_backend_entry_points(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    require_postgres_backend_capabilities_are_pending(backend.capabilities());
+    backend.bootstrap(mt::BootstrapSpec{});
+
+    auto session = backend.open_session();
+    if (!session)
+    {
+        throw mt::BackendError("postgres backend returned null session");
+    }
+
+    try
+    {
+        session->begin_backend_transaction();
+    }
+    catch (const mt::BackendError&)
+    {
+        return;
+    }
+
+    throw mt::BackendError("postgres session lifecycle unexpectedly succeeded");
+}
+
 } // namespace
 
 int main()
@@ -31,6 +68,7 @@ int main()
     try
     {
         test_postgres_connection_executes_query(dsn);
+        test_postgres_backend_entry_points(dsn);
     }
     catch (const mt::Error& error)
     {

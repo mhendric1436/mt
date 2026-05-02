@@ -93,8 +93,9 @@ backend separately:
 ```
 
 SQLite has an optional backend implementation under `src/backends/sqlite/`. PostgreSQL
-currently has a dependency-free skeleton header. Concrete backend implementations should
-remain optional so users of the core library do not need database client dependencies.
+has a partial optional backend implementation under `src/backends/postgres/`. Concrete
+backend implementations should remain optional so users of the core library do not need
+database client dependencies.
 
 ## Code Generation
 
@@ -255,9 +256,10 @@ handle retries at a higher level.
 - `include/mt/transaction.hpp`: transaction state, validation, retry provider
 - `include/mt/table.hpp`: mapping concept and typed table facade
 - `include/mt/backends/sqlite.hpp`: dependency-free SQLite backend public header
-- `include/mt/backends/postgres.hpp`: dependency-free PostgreSQL backend skeleton
+- `include/mt/backends/postgres.hpp`: dependency-free PostgreSQL backend public header
 - `src/backends/`: optional backend implementation files
 - `src/backends/sqlite/README.md`: SQLite backend implementation layout
+- `src/backends/postgres/README.md`: PostgreSQL backend implementation layout
 - `tests/backends/sqlite/README.md`: SQLite backend test layout
 - `tools/mt_codegen.py`: JSON metadata to C++ header generator
 - `examples/schemas/user.mt.json`: example schema used by documentation and tests
@@ -319,9 +321,8 @@ cross-process consistency.
 
 SQLite is implemented as an optional backend with source layout documentation in
 `src/backends/sqlite/README.md` and test layout documentation in
-`tests/backends/sqlite/README.md`. PostgreSQL currently has a dependency-free skeleton
-header. Concrete implementations should remain optional so core users do not need those
-dependencies.
+`tests/backends/sqlite/README.md`. PostgreSQL has a partial optional backend
+implementation and remains gated so core users do not need libpq.
 
 ## Schema Evolution
 
