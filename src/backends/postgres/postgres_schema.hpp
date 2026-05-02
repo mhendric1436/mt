@@ -40,6 +40,14 @@ struct PrivateSchemaSql
     static std::string count_active_transactions();
     static std::string select_snapshot_document();
     static std::string select_current_metadata();
+    static std::string select_snapshot_list(
+        bool has_after_key,
+        bool has_limit
+    );
+    static std::string select_current_metadata_list(
+        bool has_after_key,
+        bool has_limit
+    );
     static std::string insert_history();
     static std::string upsert_current();
     static std::string select_history_row_by_collection_key();

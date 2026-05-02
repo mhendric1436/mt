@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace mt::backends::postgres
 {
@@ -249,20 +250,88 @@ QueryMetadataResult PostgresSession::query_current_metadata(
 }
 
 QueryResultEnvelope PostgresSession::list_snapshot(
-    CollectionId,
-    const ListOptions&,
-    Version
+    CollectionId collection,
+    const ListOptions& options,
+    Version version
 )
 {
-    throw_session_not_implemented();
+    require_backend_tx();
+
+    auto params = std::vector<std::string>{std::to_string(collection), std::to_string(version)};
+    if (options.after_key)
+    {
+        params.push_back(*options.after_key);
+    }
+    if (options.limit)
+    {
+        params.push_back(std::to_string(*options.limit));
+    }
+
+    auto result = connection_->exec_params(
+        detail::PrivateSchemaSql::select_snapshot_list(
+            options.after_key.has_value(), options.limit.has_value()
+        ),
+        params, {PGRES_TUPLES_OK}
+    );
+
+    QueryResultEnvelope envelope;
+    for (auto row = 0; row < result.rows(); ++row)
+    {
+        auto deleted = postgres_bool(result.value(row, 2));
+        envelope.rows.push_back(
+            DocumentEnvelope{
+                .collection = collection,
+                .key = std::string(result.value(row, 0)),
+                .version = static_cast<Version>(std::stoull(std::string(result.value(row, 1)))),
+                .deleted = deleted,
+                .value_hash = hash_from_text(std::string(result.value(row, 3))),
+                .value = deleted ? Json::null() : parse_json(result.value(row, 4))
+            }
+        );
+    }
+
+    return envelope;
 }
 
 QueryMetadataResult PostgresSession::list_current_metadata(
-    CollectionId,
-    const ListOptions&
+    CollectionId collection,
+    const ListOptions& options
 )
 {
-    throw_session_not_implemented();
+    require_backend_tx();
+
+    auto params = std::vector<std::string>{std::to_string(collection)};
+    if (options.after_key)
+    {
+        params.push_back(*options.after_key);
+    }
+    if (options.limit)
+    {
+        params.push_back(std::to_string(*options.limit));
+    }
+
+    auto result = connection_->exec_params(
+        detail::PrivateSchemaSql::select_current_metadata_list(
+            options.after_key.has_value(), options.limit.has_value()
+        ),
+        params, {PGRES_TUPLES_OK}
+    );
+
+    QueryMetadataResult envelope;
+    for (auto row = 0; row < result.rows(); ++row)
+    {
+        envelope.rows.push_back(
+            DocumentMetadata{
+                .collection = collection,
+                .key = std::string(result.value(row, 0)),
+                .version = static_cast<Version>(std::stoull(std::string(result.value(row, 1)))),
+                .deleted = postgres_bool(result.value(row, 2)),
+                .value_hash = hash_from_text(std::string(result.value(row, 3)))
+            }
+        );
+    }
+
+    return envelope;
 }
 
 void PostgresSession::insert_history(

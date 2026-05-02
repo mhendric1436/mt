@@ -461,6 +461,126 @@ void test_postgres_backend_point_reads_return_tombstones(std::string_view dsn)
     }
 }
 
+void test_postgres_backend_list_snapshot_orders_and_paginates(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    auto descriptor =
+        backend.ensure_collection(postgres_user_schema("postgres_list_snapshot_users"));
+
+    mt::WriteEnvelope user_1{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Put,
+        .value = postgres_user_json("user:1", "one@example.com"),
+        .value_hash = test_hash(0x71)
+    };
+    mt::WriteEnvelope user_2_old{
+        .collection = descriptor.id,
+        .key = "user:2",
+        .kind = mt::WriteKind::Put,
+        .value = postgres_user_json("user:2", "old@example.com"),
+        .value_hash = test_hash(0x72)
+    };
+    mt::WriteEnvelope user_2_new{
+        .collection = descriptor.id,
+        .key = "user:2",
+        .kind = mt::WriteKind::Put,
+        .value = postgres_user_json("user:2", "new@example.com"),
+        .value_hash = test_hash(0x73)
+    };
+    mt::WriteEnvelope user_3_delete{
+        .collection = descriptor.id,
+        .key = "user:3",
+        .kind = mt::WriteKind::Delete,
+        .value_hash = test_hash(0x74)
+    };
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        session->insert_history(descriptor.id, user_2_old, 1);
+        session->upsert_current(descriptor.id, user_2_old, 1);
+        session->insert_history(descriptor.id, user_1, 2);
+        session->upsert_current(descriptor.id, user_1, 2);
+        session->insert_history(descriptor.id, user_2_new, 3);
+        session->upsert_current(descriptor.id, user_2_new, 3);
+        session->insert_history(descriptor.id, user_3_delete, 4);
+        session->upsert_current(descriptor.id, user_3_delete, 4);
+        session->commit_backend_transaction();
+    }
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        auto rows = session->list_snapshot(descriptor.id, mt::ListOptions{.limit = 2}, 4).rows;
+        auto after_rows =
+            session
+                ->list_snapshot(
+                    descriptor.id, mt::ListOptions{.limit = 2, .after_key = "user:1"}, 4
+                )
+                .rows;
+        auto early_rows = session->list_snapshot(descriptor.id, mt::ListOptions{}, 2).rows;
+        session->commit_backend_transaction();
+
+        if (rows.size() != 2 || rows[0].key != "user:1" || rows[1].key != "user:2" ||
+            rows[1].value["email"].as_string() != "new@example.com" || after_rows.size() != 1 ||
+            after_rows[0].key != "user:2" || early_rows.size() != 2 ||
+            early_rows[0].key != "user:1" || early_rows[1].key != "user:2" ||
+            early_rows[1].value["email"].as_string() != "old@example.com")
+        {
+            throw mt::BackendError("postgres snapshot list returned unexpected rows");
+        }
+    }
+}
+
+void test_postgres_backend_list_current_metadata_orders_and_paginates(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    auto descriptor =
+        backend.ensure_collection(postgres_user_schema("postgres_list_current_users"));
+
+    mt::WriteEnvelope user_1{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Put,
+        .value = postgres_user_json("user:1", "one@example.com"),
+        .value_hash = test_hash(0x81)
+    };
+    mt::WriteEnvelope user_2{
+        .collection = descriptor.id,
+        .key = "user:2",
+        .kind = mt::WriteKind::Delete,
+        .value_hash = test_hash(0x82)
+    };
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        session->insert_history(descriptor.id, user_2, 1);
+        session->upsert_current(descriptor.id, user_2, 1);
+        session->insert_history(descriptor.id, user_1, 2);
+        session->upsert_current(descriptor.id, user_1, 2);
+        session->commit_backend_transaction();
+    }
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        auto rows = session
+                        ->list_current_metadata(
+                            descriptor.id, mt::ListOptions{.limit = 1, .after_key = "user:1"}
+                        )
+                        .rows;
+        session->commit_backend_transaction();
+
+        if (rows.size() != 1 || rows[0].key != "user:2" || rows[0].version != mt::Version{1} ||
+            !rows[0].deleted || rows[0].value_hash != test_hash(0x82))
+        {
+            throw mt::BackendError("postgres current metadata list returned unexpected rows");
+        }
+    }
+}
+
 void test_postgres_bootstrap_creates_private_tables(std::string_view dsn)
 {
     auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
@@ -571,6 +691,8 @@ int main()
         test_postgres_backend_document_writes_rollback_on_abort(dsn);
         test_postgres_backend_point_reads_return_snapshot_versions(dsn);
         test_postgres_backend_point_reads_return_tombstones(dsn);
+        test_postgres_backend_list_snapshot_orders_and_paginates(dsn);
+        test_postgres_backend_list_current_metadata_orders_and_paginates(dsn);
         test_postgres_collection_metadata_round_trips(dsn);
         test_postgres_rejects_incompatible_schema_change(dsn);
     }

@@ -436,6 +436,59 @@ std::string PrivateSchemaSql::select_current_metadata()
            "WHERE collection_id = $1::bigint AND document_key = $2";
 }
 
+std::string PrivateSchemaSql::select_snapshot_list(
+    bool has_after_key,
+    bool has_limit
+)
+{
+    auto sql = std::string(
+        "SELECT h.document_key, h.version, h.deleted, h.value_hash, h.value_json::text "
+        "FROM mt_history h "
+        "WHERE h.collection_id = $1::bigint "
+        "AND h.version = ("
+        "SELECT MAX(h2.version) FROM mt_history h2 "
+        "WHERE h2.collection_id = h.collection_id "
+        "AND h2.document_key = h.document_key "
+        "AND h2.version <= $2::bigint"
+        ") "
+        "AND h.deleted = false "
+    );
+    auto next_param = 3;
+    if (has_after_key)
+    {
+        sql += "AND h.document_key > $" + std::to_string(next_param++) + " ";
+    }
+    sql += "ORDER BY h.document_key ";
+    if (has_limit)
+    {
+        sql += "LIMIT $" + std::to_string(next_param) + "::bigint";
+    }
+    return sql;
+}
+
+std::string PrivateSchemaSql::select_current_metadata_list(
+    bool has_after_key,
+    bool has_limit
+)
+{
+    auto sql = std::string(
+        "SELECT document_key, version, deleted, value_hash "
+        "FROM mt_current "
+        "WHERE collection_id = $1::bigint "
+    );
+    auto next_param = 2;
+    if (has_after_key)
+    {
+        sql += "AND document_key > $" + std::to_string(next_param++) + " ";
+    }
+    sql += "ORDER BY document_key ";
+    if (has_limit)
+    {
+        sql += "LIMIT $" + std::to_string(next_param) + "::bigint";
+    }
+    return sql;
+}
+
 std::string PrivateSchemaSql::insert_history()
 {
     return "INSERT INTO mt_history "
