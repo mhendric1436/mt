@@ -990,6 +990,37 @@ void test_postgres_collection_metadata_round_trips(std::string_view dsn)
     }
 }
 
+void test_postgres_accepts_defaulted_schema_change(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    auto initial = postgres_user_schema("postgres_defaulted_schema_users");
+    auto requested = postgres_user_schema("postgres_defaulted_schema_users");
+    requested.schema_version = 2;
+    requested.fields.push_back(
+        mt::FieldSpec::int64("extra_login_count").with_default(mt::Json(std::int64_t{0}))
+    );
+
+    auto first = backend.ensure_collection(initial);
+    auto second = backend.ensure_collection(requested);
+    auto descriptor = backend.get_collection("postgres_defaulted_schema_users");
+
+    if (second.id != first.id || descriptor.schema_version != 2)
+    {
+        throw mt::BackendError("postgres defaulted schema change did not update descriptor");
+    }
+
+    auto connection = mt::backends::postgres::detail::Connection::open(dsn);
+    auto snapshot = mt::backends::postgres::detail::load_collection_spec(
+        connection, "postgres_defaulted_schema_users"
+    );
+    if (!snapshot || snapshot->schema_version != 2 || snapshot->fields.size() != 3 ||
+        !snapshot->fields[2].has_default ||
+        snapshot->fields[2].default_value != mt::Json(std::int64_t{0}))
+    {
+        throw mt::BackendError("postgres defaulted schema snapshot did not round-trip");
+    }
+}
+
 void test_postgres_rejects_incompatible_schema_change(std::string_view dsn)
 {
     auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
@@ -1014,6 +1045,26 @@ void test_postgres_rejects_incompatible_schema_change(std::string_view dsn)
     }
 
     throw mt::BackendError("postgres accepted incompatible schema change");
+}
+
+void test_postgres_rejects_explicit_migration_specs(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    auto spec = postgres_user_schema("postgres_explicit_migration_users");
+    spec.migrations.push_back(
+        mt::Migration{.from_version = 1, .to_version = 2, .transform = [](mt::Json&) {}}
+    );
+
+    try
+    {
+        backend.ensure_collection(spec);
+    }
+    catch (const mt::BackendError&)
+    {
+        return;
+    }
+
+    throw mt::BackendError("postgres accepted explicit migration spec");
 }
 
 } // namespace
@@ -1053,7 +1104,9 @@ int main()
         test_postgres_core_transaction_table_round_trips_generated_user(dsn);
         test_postgres_core_transactions_reject_unique_index_conflict(dsn);
         test_postgres_collection_metadata_round_trips(dsn);
+        test_postgres_accepts_defaulted_schema_change(dsn);
         test_postgres_rejects_incompatible_schema_change(dsn);
+        test_postgres_rejects_explicit_migration_specs(dsn);
     }
     catch (const mt::Error& error)
     {

@@ -324,8 +324,8 @@ cross-process consistency.
 
 SQLite is implemented as an optional backend with source layout documentation in
 `src/backends/sqlite/README.md` and test layout documentation in
-`tests/backends/sqlite/README.md`. PostgreSQL has a partial optional backend
-implementation and remains gated so core users do not need libpq.
+`tests/backends/sqlite/README.md`. PostgreSQL is implemented as an optional backend and
+remains gated so core users do not need libpq.
 
 ## Schema Evolution
 
@@ -355,8 +355,10 @@ The memory backend stores accepted schema snapshots in process-local state and e
 the same compatibility rules during a process lifetime. It intentionally does not
 support migrations: after a process restart there is no persisted memory schema or data
 to migrate, and tables are recreated from the latest row/mapping code in the new binary.
-Durable backends should store snapshots in private backend metadata tables and apply the
-compare/update atomically. See `docs/backend_contract.md` and
+SQLite and PostgreSQL store snapshots in private backend metadata tables and apply the
+compare/update atomically. Explicit user-defined `Migration` transforms are modeled in
+the API but are not implemented by the current backends; compatible schema evolution is
+driven by comparing generated schema metadata. See `docs/backend_contract.md` and
 `docs/backend_implementation.md` for backend requirements.
 
 ## Documentation Diagrams
