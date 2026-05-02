@@ -1,0 +1,35 @@
+Plan for SQLite overlapping write-capable transactions:
+
+  1. Switch transaction start to deferred
+     Change SQLite begin_backend_transaction() from BEGIN IMMEDIATE to BEGIN DEFERRED so multiple transactions can open and read
+     concurrently.
+  2. Stop writing during TransactionProvider::begin()
+     Today begin calls create_transaction_id() and register_active_transaction(), both write. For SQLite, that defeats deferred
+     transactions.
+  3. Defer transaction ID allocation
+     Allocate TxId lazily only when needed for commit/active metadata, or move SQLite tx IDs to a non-locking mechanism. SQLite has
+     no sequence object like Postgres, so the cleanest path is lazy allocation near commit.
+  4. Make active transaction registration optional/deferred
+     For SQLite, active transaction rows are not needed for current conflict detection. Register only when the backend can do it
+     without forcing early write locks, or make registration a no-op for SQLite until retention/GC needs it.
+  5. Add a backend capability or lifecycle split
+     Introduce a backend capability such as requires_write_on_begin or better split transaction lifecycle into:
+      - open read transaction
+      - begin write/commit phase
+        This lets TransactionProvider avoid assuming all backends can register active transactions at logical begin.
+  6. Move SQLite write lock acquisition to commit
+     On Transaction::commit(), SQLite should acquire the write lock, lock/read the clock, validate read/write/predicate sets,
+     increment clock, write history/current, and commit.
+  7. Handle busy conflicts explicitly
+     Configure SQLite busy timeout or map SQLITE_BUSY during write-lock acquisition to TransactionConflict or BackendError depending
+     on where it occurs. For retry ergonomics, commit-time busy should likely become TransactionConflict.
+  8. Add regression tests
+     Add SQLite tests for:
+      - two overlapping transactions writing different keys both commit
+      - overlapping writes to same key conflict
+      - read/write conflict still aborts stale reader
+      - list/query predicate conflicts still work
+      - transaction IDs remain unique if still persisted
+  9. Preserve SQLite single-writer reality
+     This will allow multiple open write-capable logical transactions, but SQLite will still serialize the actual commit/write phase.
+     That is fine; the goal is not parallel writes, it is avoiding unnecessary blocking at transaction start.
