@@ -16,7 +16,8 @@ Current implementation status:
 - backend state and public backend entry points
 - private table bootstrap
 - collection metadata and schema snapshots
-- session placeholder for later lifecycle/clock/read/write phases
+- session lifecycle, clock, transaction id, and active transaction metadata
+- document read/write/query phases are still pending
 
 Optional backend implementation and tests should use `libpq` through `pkg-config`.
 `make postgres-check` skips when `MT_POSTGRES_TEST_DSN` is unset. When the variable is

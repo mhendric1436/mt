@@ -67,16 +67,190 @@ void test_postgres_backend_entry_points(std::string_view dsn)
         throw mt::BackendError("postgres backend returned null session");
     }
 
+    session->begin_backend_transaction();
+    session->abort_backend_transaction();
+}
+
+void test_postgres_backend_session_rejects_invalid_lifecycle(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    backend.bootstrap(mt::BootstrapSpec{});
+
+    {
+        auto session = backend.open_session();
+        auto threw = false;
+        try
+        {
+            session->commit_backend_transaction();
+        }
+        catch (const mt::BackendError&)
+        {
+            threw = true;
+        }
+
+        if (!threw)
+        {
+            throw mt::BackendError("postgres backend accepted commit without open transaction");
+        }
+    }
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        auto threw = false;
+        try
+        {
+            session->begin_backend_transaction();
+        }
+        catch (const mt::BackendError&)
+        {
+            threw = true;
+        }
+        session->abort_backend_transaction();
+
+        if (!threw)
+        {
+            throw mt::BackendError("postgres backend accepted nested session lifecycle");
+        }
+    }
+}
+
+void test_postgres_backend_clock_reads_and_increments(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    backend.bootstrap(mt::BootstrapSpec{});
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        if (session->read_clock() != mt::Version{0} ||
+            session->lock_clock_and_read() != mt::Version{0})
+        {
+            throw mt::BackendError("postgres clock did not start at zero");
+        }
+
+        auto threw = false;
+        try
+        {
+            session->lock_clock_and_read();
+        }
+        catch (const mt::BackendError&)
+        {
+            threw = true;
+        }
+
+        if (!threw)
+        {
+            throw mt::BackendError("postgres clock accepted second lock in one session");
+        }
+
+        if (session->increment_clock_and_return() != mt::Version{1})
+        {
+            throw mt::BackendError("postgres clock increment returned unexpected version");
+        }
+        session->commit_backend_transaction();
+    }
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        if (session->read_clock() != mt::Version{1})
+        {
+            throw mt::BackendError("postgres clock increment was not persisted");
+        }
+        session->abort_backend_transaction();
+    }
+}
+
+void test_postgres_backend_clock_increment_requires_lock(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    backend.bootstrap(mt::BootstrapSpec{});
+
+    auto session = backend.open_session();
+    session->begin_backend_transaction();
     try
     {
-        session->begin_backend_transaction();
+        session->increment_clock_and_return();
     }
     catch (const mt::BackendError&)
     {
+        session->abort_backend_transaction();
         return;
     }
 
-    throw mt::BackendError("postgres session lifecycle unexpectedly succeeded");
+    session->abort_backend_transaction();
+    throw mt::BackendError("postgres clock increment succeeded without clock lock");
+}
+
+void test_postgres_backend_transaction_ids_are_unique_and_persisted(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    backend.bootstrap(mt::BootstrapSpec{});
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        if (session->create_transaction_id() != "postgres:1" ||
+            session->create_transaction_id() != "postgres:2")
+        {
+            throw mt::BackendError("postgres transaction ids did not start at expected values");
+        }
+        session->commit_backend_transaction();
+    }
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        if (session->create_transaction_id() != "postgres:3")
+        {
+            throw mt::BackendError("postgres transaction ids were not persisted");
+        }
+        session->abort_backend_transaction();
+    }
+}
+
+void test_postgres_backend_active_transaction_metadata_registers_and_cleans_up(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    backend.bootstrap(mt::BootstrapSpec{});
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        session->register_active_transaction("postgres:test", 42);
+        session->unregister_active_transaction("missing");
+        session->commit_backend_transaction();
+    }
+
+    {
+        auto connection = mt::backends::postgres::detail::Connection::open(dsn);
+        auto count = connection.exec_query(
+            mt::backends::postgres::detail::PrivateSchemaSql::count_active_transactions()
+        );
+        if (count.rows() != 1 || count.value(0, 0) != "1")
+        {
+            throw mt::BackendError("postgres active transaction was not registered");
+        }
+    }
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        session->unregister_active_transaction("postgres:test");
+        session->commit_backend_transaction();
+    }
+
+    {
+        auto connection = mt::backends::postgres::detail::Connection::open(dsn);
+        auto count = connection.exec_query(
+            mt::backends::postgres::detail::PrivateSchemaSql::count_active_transactions()
+        );
+        if (count.rows() != 1 || count.value(0, 0) != "0")
+        {
+            throw mt::BackendError("postgres active transaction was not removed");
+        }
+    }
 }
 
 void test_postgres_bootstrap_creates_private_tables(std::string_view dsn)
@@ -179,6 +353,11 @@ int main()
         reset_postgres_private_tables(dsn);
         test_postgres_backend_entry_points(dsn);
         test_postgres_bootstrap_creates_private_tables(dsn);
+        test_postgres_backend_session_rejects_invalid_lifecycle(dsn);
+        test_postgres_backend_clock_reads_and_increments(dsn);
+        test_postgres_backend_clock_increment_requires_lock(dsn);
+        test_postgres_backend_transaction_ids_are_unique_and_persisted(dsn);
+        test_postgres_backend_active_transaction_metadata_registers_and_cleans_up(dsn);
         test_postgres_collection_metadata_round_trips(dsn);
         test_postgres_rejects_incompatible_schema_change(dsn);
     }

@@ -28,6 +28,16 @@ struct PrivateSchemaSql
     static std::string count_private_tables();
     static std::string select_metadata_schema_version();
     static std::string select_clock_row();
+    static std::string begin_transaction();
+    static std::string commit();
+    static std::string rollback();
+    static std::string select_clock_version();
+    static std::string lock_clock_version();
+    static std::string increment_clock_version_returning();
+    static std::string increment_next_tx_id_returning();
+    static std::string insert_or_replace_active_transaction();
+    static std::string delete_active_transaction();
+    static std::string count_active_transactions();
 
     static std::string select_collection_spec_by_logical_name();
     static std::string select_collection_descriptor_by_logical_name();

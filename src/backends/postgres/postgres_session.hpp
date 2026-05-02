@@ -1,5 +1,6 @@
 #pragma once
 
+#include "postgres_connection.hpp"
 #include "postgres_state.hpp"
 
 #include "mt/backend/session.hpp"
@@ -78,7 +79,14 @@ class PostgresSession final : public IBackendSession
     ) override;
 
   private:
+    void require_backend_tx() const;
+    Version read_clock_row(std::string_view sql);
+
+  private:
     std::shared_ptr<PostgresBackendState> state_;
+    std::optional<detail::Connection> connection_;
+    bool in_backend_tx_ = false;
+    bool clock_locked_ = false;
 };
 
 } // namespace mt::backends::postgres

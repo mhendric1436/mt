@@ -366,6 +366,61 @@ std::string PrivateSchemaSql::select_clock_row()
     return "SELECT version, next_tx_id FROM mt_clock WHERE id = 1";
 }
 
+std::string PrivateSchemaSql::begin_transaction()
+{
+    return "BEGIN";
+}
+
+std::string PrivateSchemaSql::commit()
+{
+    return "COMMIT";
+}
+
+std::string PrivateSchemaSql::rollback()
+{
+    return "ROLLBACK";
+}
+
+std::string PrivateSchemaSql::select_clock_version()
+{
+    return "SELECT version FROM mt_clock WHERE id = 1";
+}
+
+std::string PrivateSchemaSql::lock_clock_version()
+{
+    return "SELECT version FROM mt_clock WHERE id = 1 FOR UPDATE";
+}
+
+std::string PrivateSchemaSql::increment_clock_version_returning()
+{
+    return "UPDATE mt_clock SET version = version + 1 WHERE id = 1 RETURNING version";
+}
+
+std::string PrivateSchemaSql::increment_next_tx_id_returning()
+{
+    return "UPDATE mt_clock "
+           "SET next_tx_id = next_tx_id + 1 "
+           "WHERE id = 1 "
+           "RETURNING next_tx_id - 1";
+}
+
+std::string PrivateSchemaSql::insert_or_replace_active_transaction()
+{
+    return "INSERT INTO mt_active_transactions (tx_id, start_version) "
+           "VALUES ($1, $2::bigint) "
+           "ON CONFLICT (tx_id) DO UPDATE SET start_version = EXCLUDED.start_version";
+}
+
+std::string PrivateSchemaSql::delete_active_transaction()
+{
+    return "DELETE FROM mt_active_transactions WHERE tx_id = $1";
+}
+
+std::string PrivateSchemaSql::count_active_transactions()
+{
+    return "SELECT COUNT(*) FROM mt_active_transactions";
+}
+
 std::string PrivateSchemaSql::select_collection_spec_by_logical_name()
 {
     return "SELECT c.logical_name, c.schema_version, c.key_field, s.schema_json, s.indexes_json "
