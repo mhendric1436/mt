@@ -1,6 +1,7 @@
 #include "mt/backends/postgres.hpp"
 
 #include "postgres_connection.hpp"
+#include "postgres_schema.hpp"
 #include "postgres_session.hpp"
 #include "postgres_state.hpp"
 
@@ -51,7 +52,7 @@ std::unique_ptr<IBackendSession> PostgresBackend::open_session()
     return std::make_unique<PostgresSession>(state_);
 }
 
-void PostgresBackend::bootstrap(const BootstrapSpec&)
+void PostgresBackend::bootstrap(const BootstrapSpec& spec)
 {
     std::lock_guard lock(state_->bootstrap_mutex);
     if (state_->bootstrapped)
@@ -60,7 +61,7 @@ void PostgresBackend::bootstrap(const BootstrapSpec&)
     }
 
     auto connection = detail::Connection::open(state_->dsn);
-    connection.exec_query("SELECT 1");
+    detail::bootstrap_schema(connection, spec);
     state_->bootstrapped = true;
 }
 

@@ -1,4 +1,5 @@
 #include "../../../src/backends/postgres/postgres_connection.hpp"
+#include "../../../src/backends/postgres/postgres_schema.hpp"
 
 #include "mt/backends/postgres.hpp"
 
@@ -54,6 +55,36 @@ void test_postgres_backend_entry_points(std::string_view dsn)
     throw mt::BackendError("postgres session lifecycle unexpectedly succeeded");
 }
 
+void test_postgres_bootstrap_creates_private_tables(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    backend.bootstrap(mt::BootstrapSpec{.metadata_schema_version = 3});
+
+    auto connection = mt::backends::postgres::detail::Connection::open(dsn);
+    auto tables = connection.exec_query(
+        mt::backends::postgres::detail::PrivateSchemaSql::count_private_tables()
+    );
+    if (tables.rows() != 1 || tables.value(0, 0) != "7")
+    {
+        throw mt::BackendError("postgres bootstrap did not create all private tables");
+    }
+
+    auto metadata = connection.exec_query(
+        mt::backends::postgres::detail::PrivateSchemaSql::select_metadata_schema_version()
+    );
+    if (metadata.rows() != 1 || metadata.value(0, 0) != "3")
+    {
+        throw mt::BackendError("postgres bootstrap did not seed metadata schema version");
+    }
+
+    auto clock =
+        connection.exec_query(mt::backends::postgres::detail::PrivateSchemaSql::select_clock_row());
+    if (clock.rows() != 1 || clock.value(0, 0) != "0" || clock.value(0, 1) != "1")
+    {
+        throw mt::BackendError("postgres bootstrap did not seed clock row");
+    }
+}
+
 } // namespace
 
 int main()
@@ -69,6 +100,7 @@ int main()
     {
         test_postgres_connection_executes_query(dsn);
         test_postgres_backend_entry_points(dsn);
+        test_postgres_bootstrap_creates_private_tables(dsn);
     }
     catch (const mt::Error& error)
     {

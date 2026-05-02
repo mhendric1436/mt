@@ -8,6 +8,13 @@ namespace mt::backends::postgres::detail
 
 namespace
 {
+void ignore_postgres_notice(
+    void*,
+    const char*
+)
+{
+}
+
 std::string postgres_error_message(PGconn* connection)
 {
     if (!connection)
@@ -152,6 +159,7 @@ Connection Connection::open(std::string_view dsn)
         throw BackendError(message);
     }
 
+    PQsetNoticeProcessor(connection, ignore_postgres_notice, nullptr);
     return Connection(connection);
 }
 
