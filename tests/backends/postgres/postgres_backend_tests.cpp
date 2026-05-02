@@ -37,6 +37,7 @@ mt::Json postgres_user_json(
 void reset_postgres_private_tables(std::string_view dsn)
 {
     auto connection = mt::backends::postgres::detail::Connection::open(dsn);
+    connection.exec_command("DROP SEQUENCE IF EXISTS mt_tx_id_seq CASCADE");
     connection.exec_command(
         "DROP TABLE IF EXISTS "
         "mt_current, mt_history, mt_active_transactions, mt_schema_snapshots, "
@@ -933,6 +934,31 @@ void test_postgres_core_transactions_reject_unique_index_conflict(std::string_vi
     }
 }
 
+void test_postgres_core_overlapping_orthogonal_transactions_commit(std::string_view dsn)
+{
+    auto backend = std::make_shared<mt::backends::postgres::PostgresBackend>(std::string(dsn));
+    mt::Database db{backend};
+    mt::TransactionProvider txs{db};
+    mt::TableProvider tables{db};
+    auto users = tables.table<BackendTestUser, BackendTestUserMapping>();
+
+    auto tx1 = txs.begin();
+    auto tx2 = txs.begin();
+
+    users.put(tx1, backend_test_user("orthogonal:1", "orthogonal1@example.com", true, "First"));
+    users.put(tx2, backend_test_user("orthogonal:2", "orthogonal2@example.com", true, "Second"));
+
+    tx1.commit();
+    tx2.commit();
+
+    auto first = users.require("orthogonal:1");
+    auto second = users.require("orthogonal:2");
+    if (first.email != "orthogonal1@example.com" || second.email != "orthogonal2@example.com")
+    {
+        throw mt::BackendError("postgres overlapping orthogonal transactions did not both commit");
+    }
+}
+
 void test_postgres_bootstrap_creates_private_tables(std::string_view dsn)
 {
     auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
@@ -1103,6 +1129,7 @@ int main()
         test_postgres_backend_unique_indexes_allow_same_key_missing_path_and_delete(dsn);
         test_postgres_core_transaction_table_round_trips_generated_user(dsn);
         test_postgres_core_transactions_reject_unique_index_conflict(dsn);
+        test_postgres_core_overlapping_orthogonal_transactions_commit(dsn);
         test_postgres_collection_metadata_round_trips(dsn);
         test_postgres_accepts_defaulted_schema_change(dsn);
         test_postgres_rejects_incompatible_schema_change(dsn);

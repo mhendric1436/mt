@@ -194,8 +194,7 @@ TxId PostgresSession::create_transaction_id()
 {
     require_backend_tx();
 
-    auto result =
-        connection_->exec_query(detail::PrivateSchemaSql::increment_next_tx_id_returning());
+    auto result = connection_->exec_query(detail::PrivateSchemaSql::next_transaction_id());
     if (result.rows() != 1)
     {
         throw BackendError("postgres clock row is missing");

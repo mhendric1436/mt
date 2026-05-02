@@ -96,7 +96,7 @@ backend separately:
 ```
 
 SQLite has an optional backend implementation under `src/backends/sqlite/`. PostgreSQL
-has a partial optional backend implementation under `src/backends/postgres/`. Concrete
+has an optional backend implementation under `src/backends/postgres/`. Concrete
 backend implementations should remain optional so users of the core library do not need
 database client dependencies.
 

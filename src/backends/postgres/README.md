@@ -35,3 +35,15 @@ connects to the configured database.
 
 If `libpq` is installed outside the default `pkg-config` search path, set
 `PKG_CONFIG_PATH` before running PostgreSQL targets.
+
+Local test setup:
+
+```sh
+make postgres-configure-bash-profile
+source ~/.bash_profile
+make postgres-check
+```
+
+The test target uses `MT_POSTGRES_TEST_DSN` and creates the configured `mt_test`
+database when it is missing. The database is treated as project-owned test state and
+the test harness resets mt private tables on each run.

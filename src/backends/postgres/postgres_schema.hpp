@@ -17,6 +17,7 @@ struct PrivateSchemaSql
     static std::string create_metadata_table();
     static std::string upsert_metadata_schema_version();
     static std::string create_clock_table();
+    static std::string create_transaction_id_sequence();
     static std::string insert_default_clock_row();
     static std::string create_collections_table();
     static std::string create_schema_snapshots_table();
@@ -34,7 +35,7 @@ struct PrivateSchemaSql
     static std::string select_clock_version();
     static std::string lock_clock_version();
     static std::string increment_clock_version_returning();
-    static std::string increment_next_tx_id_returning();
+    static std::string next_transaction_id();
     static std::string insert_or_replace_active_transaction();
     static std::string delete_active_transaction();
     static std::string count_active_transactions();

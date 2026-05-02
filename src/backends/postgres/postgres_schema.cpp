@@ -49,6 +49,11 @@ std::string PrivateSchemaSql::create_clock_table()
            ")";
 }
 
+std::string PrivateSchemaSql::create_transaction_id_sequence()
+{
+    return "CREATE SEQUENCE IF NOT EXISTS mt_tx_id_seq START WITH 1";
+}
+
 std::string PrivateSchemaSql::insert_default_clock_row()
 {
     return "INSERT INTO mt_clock (id, version, next_tx_id) "
@@ -165,12 +170,9 @@ std::string PrivateSchemaSql::increment_clock_version_returning()
     return "UPDATE mt_clock SET version = version + 1 WHERE id = 1 RETURNING version";
 }
 
-std::string PrivateSchemaSql::increment_next_tx_id_returning()
+std::string PrivateSchemaSql::next_transaction_id()
 {
-    return "UPDATE mt_clock "
-           "SET next_tx_id = next_tx_id + 1 "
-           "WHERE id = 1 "
-           "RETURNING next_tx_id - 1";
+    return "SELECT nextval('mt_tx_id_seq')";
 }
 
 std::string PrivateSchemaSql::insert_or_replace_active_transaction()
@@ -380,6 +382,7 @@ void bootstrap_schema(
     );
 
     connection.exec_command(PrivateSchemaSql::create_clock_table());
+    connection.exec_command(PrivateSchemaSql::create_transaction_id_sequence());
     connection.exec_command(PrivateSchemaSql::insert_default_clock_row());
 
     connection.exec_command(PrivateSchemaSql::create_collections_table());
