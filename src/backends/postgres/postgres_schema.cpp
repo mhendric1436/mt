@@ -504,6 +504,15 @@ std::string PrivateSchemaSql::select_current_query_candidates(bool has_after_key
     return sql;
 }
 
+std::string PrivateSchemaSql::select_current_unique_index_candidates()
+{
+    return "SELECT document_key, value_json::text "
+           "FROM mt_current "
+           "WHERE collection_id = $1::bigint "
+           "AND document_key <> $2 "
+           "AND deleted = false";
+}
+
 std::string PrivateSchemaSql::insert_history()
 {
     return "INSERT INTO mt_history "

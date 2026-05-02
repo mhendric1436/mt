@@ -747,6 +747,97 @@ void test_postgres_backend_query_rejects_unsupported_features(std::string_view d
     }
 }
 
+void test_postgres_backend_enforces_unique_indexes(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    auto descriptor = backend.ensure_collection(postgres_user_schema("postgres_unique_users"));
+
+    mt::WriteEnvelope first{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Put,
+        .value = postgres_user_json("user:1", "same@example.com"),
+        .value_hash = test_hash(0xB1)
+    };
+    mt::WriteEnvelope conflict{
+        .collection = descriptor.id,
+        .key = "user:2",
+        .kind = mt::WriteKind::Put,
+        .value = postgres_user_json("user:2", "same@example.com"),
+        .value_hash = test_hash(0xB2)
+    };
+
+    auto session = backend.open_session();
+    session->begin_backend_transaction();
+    session->insert_history(descriptor.id, first, 1);
+    session->upsert_current(descriptor.id, first, 1);
+
+    auto threw = false;
+    try
+    {
+        session->upsert_current(descriptor.id, conflict, 2);
+    }
+    catch (const mt::BackendError&)
+    {
+        threw = true;
+    }
+    session->abort_backend_transaction();
+
+    if (!threw)
+    {
+        throw mt::BackendError("postgres accepted unique index conflict");
+    }
+}
+
+void test_postgres_backend_unique_indexes_allow_same_key_missing_path_and_delete(
+    std::string_view dsn
+)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    auto descriptor =
+        backend.ensure_collection(postgres_user_schema("postgres_unique_allowed_users"));
+
+    mt::WriteEnvelope first{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Put,
+        .value = postgres_user_json("user:1", "same@example.com"),
+        .value_hash = test_hash(0xC1)
+    };
+    mt::WriteEnvelope same_key{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Put,
+        .value = backend_test_user_json("user:1", "same@example.com", false, "Postgres Test User"),
+        .value_hash = test_hash(0xC2)
+    };
+    mt::WriteEnvelope missing_path{
+        .collection = descriptor.id,
+        .key = "user:2",
+        .kind = mt::WriteKind::Put,
+        .value = mt::Json::object({{"active", true}}),
+        .value_hash = test_hash(0xC3)
+    };
+    mt::WriteEnvelope delete_write{
+        .collection = descriptor.id,
+        .key = "user:3",
+        .kind = mt::WriteKind::Delete,
+        .value_hash = test_hash(0xC4)
+    };
+
+    auto session = backend.open_session();
+    session->begin_backend_transaction();
+    session->insert_history(descriptor.id, first, 1);
+    session->upsert_current(descriptor.id, first, 1);
+    session->insert_history(descriptor.id, same_key, 2);
+    session->upsert_current(descriptor.id, same_key, 2);
+    session->insert_history(descriptor.id, missing_path, 3);
+    session->upsert_current(descriptor.id, missing_path, 3);
+    session->insert_history(descriptor.id, delete_write, 4);
+    session->upsert_current(descriptor.id, delete_write, 4);
+    session->commit_backend_transaction();
+}
+
 void test_postgres_bootstrap_creates_private_tables(std::string_view dsn)
 {
     auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
@@ -862,6 +953,8 @@ int main()
         test_postgres_backend_query_snapshot_supports_key_prefix_and_json_equals(dsn);
         test_postgres_backend_query_current_metadata_filters_and_limits(dsn);
         test_postgres_backend_query_rejects_unsupported_features(dsn);
+        test_postgres_backend_enforces_unique_indexes(dsn);
+        test_postgres_backend_unique_indexes_allow_same_key_missing_path_and_delete(dsn);
         test_postgres_collection_metadata_round_trips(dsn);
         test_postgres_rejects_incompatible_schema_change(dsn);
     }

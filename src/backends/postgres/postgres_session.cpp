@@ -69,6 +69,51 @@ void validate_supported_query(const QuerySpec& query)
         }
     }
 }
+
+void check_unique_constraints(
+    detail::Connection& connection,
+    CollectionId collection,
+    const WriteEnvelope& write
+)
+{
+    if (write.kind == WriteKind::Delete)
+    {
+        return;
+    }
+
+    for (const auto& index : detail::load_collection_indexes(connection, collection))
+    {
+        if (!index.unique)
+        {
+            continue;
+        }
+
+        auto write_value = json_path_value(write.value, index.json_path);
+        if (!write_value)
+        {
+            continue;
+        }
+
+        auto candidates = connection.exec_params(
+            detail::PrivateSchemaSql::select_current_unique_index_candidates(),
+            {std::to_string(collection), write.key}, {PGRES_TUPLES_OK}
+        );
+        for (auto row = 0; row < candidates.rows(); ++row)
+        {
+            if (candidates.is_null(row, 1))
+            {
+                continue;
+            }
+
+            auto current_value =
+                json_path_value(parse_json(candidates.value(row, 1)), index.json_path);
+            if (current_value && *current_value == *write_value)
+            {
+                throw BackendError("postgres backend unique index constraint violation");
+            }
+        }
+    }
+}
 } // namespace
 
 PostgresSession::PostgresSession(std::shared_ptr<PostgresBackendState> state)
@@ -438,6 +483,7 @@ void PostgresSession::upsert_current(
 )
 {
     require_backend_tx();
+    check_unique_constraints(*connection_, collection, write);
 
     connection_->exec_params(
         detail::PrivateSchemaSql::upsert_current(),
