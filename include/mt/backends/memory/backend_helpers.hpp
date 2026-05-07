@@ -119,6 +119,8 @@ inline CollectionDescriptor ensure_memory_collection(
 {
     std::lock_guard lock(state.mutex);
 
+    validate_unique_index_fields(spec);
+
     if (!spec.migrations.empty())
     {
         throw BackendError("memory backend does not support collection migrations");

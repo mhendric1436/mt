@@ -794,7 +794,7 @@ void test_postgres_backend_enforces_unique_indexes(std::string_view dsn)
     }
 }
 
-void test_postgres_backend_unique_indexes_allow_same_key_missing_path_and_delete(
+void test_postgres_backend_unique_indexes_reject_missing_path_but_allow_same_key_and_delete(
     std::string_view dsn
 )
 {
@@ -837,7 +837,19 @@ void test_postgres_backend_unique_indexes_allow_same_key_missing_path_and_delete
     session->insert_history(descriptor.id, same_key, 2);
     session->upsert_current(descriptor.id, same_key, 2);
     session->insert_history(descriptor.id, missing_path, 3);
-    session->upsert_current(descriptor.id, missing_path, 3);
+    auto rejected_missing_path = false;
+    try
+    {
+        session->upsert_current(descriptor.id, missing_path, 3);
+    }
+    catch (const mt::BackendError&)
+    {
+        rejected_missing_path = true;
+    }
+    if (!rejected_missing_path)
+    {
+        throw mt::BackendError("postgres accepted missing unique index value");
+    }
     session->insert_history(descriptor.id, delete_write, 4);
     session->upsert_current(descriptor.id, delete_write, 4);
     session->commit_backend_transaction();
@@ -1016,6 +1028,28 @@ void test_postgres_collection_metadata_round_trips(std::string_view dsn)
     }
 }
 
+void test_postgres_rejects_nullable_unique_index_schema(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    auto spec = postgres_user_schema("postgres_nullable_unique_schema_users");
+    spec.fields.push_back(mt::FieldSpec::optional("nickname", mt::FieldType::String));
+    spec.indexes.push_back(mt::IndexSpec::json_path_index("nickname", "$.nickname").make_unique());
+
+    auto rejected = false;
+    try
+    {
+        backend.ensure_collection(spec);
+    }
+    catch (const mt::BackendError&)
+    {
+        rejected = true;
+    }
+    if (!rejected)
+    {
+        throw mt::BackendError("postgres accepted nullable unique index schema");
+    }
+}
+
 void test_postgres_accepts_defaulted_schema_change(std::string_view dsn)
 {
     auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
@@ -1126,11 +1160,12 @@ int main()
         test_postgres_backend_query_current_metadata_filters_and_limits(dsn);
         test_postgres_backend_query_rejects_unsupported_features(dsn);
         test_postgres_backend_enforces_unique_indexes(dsn);
-        test_postgres_backend_unique_indexes_allow_same_key_missing_path_and_delete(dsn);
+        test_postgres_backend_unique_indexes_reject_missing_path_but_allow_same_key_and_delete(dsn);
         test_postgres_core_transaction_table_round_trips_generated_user(dsn);
         test_postgres_core_transactions_reject_unique_index_conflict(dsn);
         test_postgres_core_overlapping_orthogonal_transactions_commit(dsn);
         test_postgres_collection_metadata_round_trips(dsn);
+        test_postgres_rejects_nullable_unique_index_schema(dsn);
         test_postgres_accepts_defaulted_schema_change(dsn);
         test_postgres_rejects_incompatible_schema_change(dsn);
         test_postgres_rejects_explicit_migration_specs(dsn);

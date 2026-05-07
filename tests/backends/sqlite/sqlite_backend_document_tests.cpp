@@ -504,7 +504,7 @@ void test_sqlite_backend_enforces_unique_indexes()
     std::filesystem::remove(path);
 }
 
-void test_sqlite_backend_unique_indexes_allow_same_key_update_missing_path_and_delete()
+void test_sqlite_backend_unique_indexes_reject_missing_path_but_allow_same_key_update_and_delete()
 {
     auto path = sqlite_test_path("mt_sqlite_unique_index_allow_test.sqlite");
     mt::backends::sqlite::SqliteBackend backend{path.string()};
@@ -546,7 +546,7 @@ void test_sqlite_backend_unique_indexes_allow_same_key_update_missing_path_and_d
         session->insert_history(descriptor.id, same_key, 2);
         session->upsert_current(descriptor.id, same_key, 2);
         session->insert_history(descriptor.id, missing_path, 3);
-        session->upsert_current(descriptor.id, missing_path, 3);
+        EXPECT_THROW_AS(session->upsert_current(descriptor.id, missing_path, 3), mt::BackendError);
         session->insert_history(descriptor.id, delete_write, 4);
         session->upsert_current(descriptor.id, delete_write, 4);
         session->commit_backend_transaction();

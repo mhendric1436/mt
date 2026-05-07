@@ -81,6 +81,15 @@ struct UserMapping
             mt::IndexSpec::json_path_index("active", "$.active")
         };
     }
+
+    static std::vector<mt::FieldSpec> fields()
+    {
+        return {
+            mt::FieldSpec::string("id"), mt::FieldSpec::string("email"),
+            mt::FieldSpec::string("name"), mt::FieldSpec::boolean("active"),
+            mt::FieldSpec::int64("login_count")
+        };
+    }
 };
 
 struct Harness
@@ -325,6 +334,36 @@ void test_unique_index_field_policy_rejects_non_scalar_fields()
     EXPECT_TRUE(mt::unique_index_field_rejection_reason(json).has_value());
     EXPECT_TRUE(mt::unique_index_field_rejection_reason(array).has_value());
     EXPECT_TRUE(mt::unique_index_field_rejection_reason(object).has_value());
+}
+
+void test_unique_index_schema_validation_rejects_nullable_index()
+{
+    auto spec = user_schema_spec();
+    spec.fields.push_back(mt::FieldSpec::optional("nickname", mt::FieldType::String));
+    spec.indexes.push_back(mt::IndexSpec::json_path_index("nickname", "$.nickname").make_unique());
+
+    EXPECT_THROW_AS(mt::validate_unique_index_fields(spec), mt::BackendError);
+}
+
+void test_unique_index_schema_validation_rejects_missing_index_path()
+{
+    auto spec = user_schema_spec();
+    spec.indexes.push_back(mt::IndexSpec::json_path_index("missing", "$.missing").make_unique());
+
+    EXPECT_THROW_AS(mt::validate_unique_index_fields(spec), mt::BackendError);
+}
+
+void test_table_schema_capability_validation_rejects_nullable_unique_index()
+{
+    mt::BackendCapabilities capabilities;
+    capabilities.schema.json_indexes = true;
+    capabilities.schema.unique_indexes = true;
+
+    auto spec = user_schema_spec();
+    spec.fields.push_back(mt::FieldSpec::optional("nickname", mt::FieldType::String));
+    spec.indexes.push_back(mt::IndexSpec::json_path_index("nickname", "$.nickname").make_unique());
+
+    EXPECT_THROW_AS(mt::require_schema_capabilities(capabilities, spec), mt::BackendError);
 }
 
 void test_backend_contract_transaction_ids_are_non_empty_and_unique()
@@ -1219,6 +1258,9 @@ int main()
     test_unique_index_field_policy_allows_required_scalars();
     test_unique_index_field_policy_rejects_nullable_fields();
     test_unique_index_field_policy_rejects_non_scalar_fields();
+    test_unique_index_schema_validation_rejects_nullable_index();
+    test_unique_index_schema_validation_rejects_missing_index_path();
+    test_table_schema_capability_validation_rejects_nullable_unique_index();
     test_backend_contract_transaction_ids_are_non_empty_and_unique();
     test_backend_contract_commit_versions_strictly_increase();
     test_backend_contract_clock_increment_requires_lock_owner();

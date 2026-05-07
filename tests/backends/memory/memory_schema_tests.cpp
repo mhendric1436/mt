@@ -230,6 +230,16 @@ void test_memory_backend_rejects_required_added_field_schema_change()
     EXPECT_EQ(snapshot->schema_version, 1);
 }
 
+void test_memory_backend_rejects_nullable_unique_index_schema()
+{
+    mt::backends::memory::MemoryBackend backend;
+    auto spec = user_schema_spec();
+    spec.fields.push_back(mt::FieldSpec::optional("nickname", mt::FieldType::String));
+    spec.indexes.push_back(mt::IndexSpec::json_path_index("nickname", "$.nickname").make_unique());
+
+    EXPECT_THROW_AS(backend.ensure_collection(spec), mt::BackendError);
+}
+
 void test_memory_backend_rejects_migrations()
 {
     auto backend = std::make_shared<mt::backends::memory::MemoryBackend>();

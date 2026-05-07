@@ -12,6 +12,7 @@ void test_memory_backend_accepts_nested_object_schema_change();
 void test_memory_backend_rejects_key_field_schema_change();
 void test_memory_backend_rejects_field_type_schema_change();
 void test_memory_backend_rejects_required_added_field_schema_change();
+void test_memory_backend_rejects_nullable_unique_index_schema();
 void test_memory_backend_rejects_migrations();
 void test_memory_backend_active_transaction_lifecycle_allows_register_commit_and_abort();
 void test_memory_backend_snapshot_reads_select_best_visible_version();
@@ -22,7 +23,7 @@ void test_memory_backend_query_supports_json_equals();
 void test_memory_backend_rejects_json_contains_query();
 void test_memory_backend_rejects_non_key_ordering();
 void test_memory_backend_enforces_unique_indexes();
-void test_memory_backend_unique_indexes_allow_same_key_missing_path_and_delete();
+void test_memory_backend_unique_indexes_reject_missing_path_but_allow_same_key_and_delete();
 
 int main()
 {
@@ -36,6 +37,7 @@ int main()
     test_memory_backend_rejects_key_field_schema_change();
     test_memory_backend_rejects_field_type_schema_change();
     test_memory_backend_rejects_required_added_field_schema_change();
+    test_memory_backend_rejects_nullable_unique_index_schema();
     test_memory_backend_rejects_migrations();
     test_memory_backend_active_transaction_lifecycle_allows_register_commit_and_abort();
     test_memory_backend_snapshot_reads_select_best_visible_version();
@@ -46,7 +48,7 @@ int main()
     test_memory_backend_rejects_json_contains_query();
     test_memory_backend_rejects_non_key_ordering();
     test_memory_backend_enforces_unique_indexes();
-    test_memory_backend_unique_indexes_allow_same_key_missing_path_and_delete();
+    test_memory_backend_unique_indexes_reject_missing_path_but_allow_same_key_and_delete();
 
     std::cout << "All memory backend tests passed.\n";
     return 0;

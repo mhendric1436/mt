@@ -89,9 +89,9 @@ void check_unique_constraints(
         }
 
         auto write_value = json_path_value(write.value, index.json_path);
-        if (!write_value)
+        if (!write_value || write_value->is_null())
         {
-            continue;
+            throw BackendError("postgres backend unique index value must not be null or missing");
         }
 
         auto candidates = connection.exec_params(

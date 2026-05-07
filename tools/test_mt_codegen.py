@@ -343,6 +343,36 @@ class SchemaValidationTests(unittest.TestCase):
 
         self.assert_schema_error(schema, "indexes[0].path must reference a top-level generated field")
 
+    def test_unique_index_rejects_optional_field(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["fields"].append({"name": "nickname", "type": "optional", "value_type": "string"})
+        schema["indexes"].append({"name": "nickname", "path": "$.nickname", "unique": True})
+
+        self.assert_schema_error(
+            schema,
+            "unique index 'nickname' on '$.nickname' rejected: unique index field must be a required scalar field",
+        )
+
+    def test_unique_index_rejects_nullable_field(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["fields"].append({"name": "external_id", "type": "string", "required": False})
+        schema["indexes"].append({"name": "external_id", "path": "$.external_id", "unique": True})
+
+        self.assert_schema_error(
+            schema,
+            "unique index 'external_id' on '$.external_id' rejected: unique index field must not be nullable",
+        )
+
+    def test_unique_index_rejects_json_field(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["fields"].append({"name": "metadata", "type": "json"})
+        schema["indexes"].append({"name": "metadata", "path": "$.metadata", "unique": True})
+
+        self.assert_schema_error(
+            schema,
+            "unique index 'metadata' on '$.metadata' rejected: unique index field must be a required scalar field",
+        )
+
     def test_cli_prints_schema_error_without_traceback(self):
         with tempfile.TemporaryDirectory() as temp:
             schema_path = Path(temp) / "bad.mt.json"

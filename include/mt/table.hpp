@@ -4,6 +4,7 @@
 #include "mt/database.hpp"
 #include "mt/errors.hpp"
 #include "mt/query.hpp"
+#include "mt/schema.hpp"
 #include "mt/transaction.hpp"
 
 #include <concepts>
@@ -87,6 +88,8 @@ inline void require_schema_capabilities(
             throw BackendError("backend does not support unique indexes");
         }
     }
+
+    validate_unique_index_fields(spec);
 }
 
 template <class Mapping, class Row>

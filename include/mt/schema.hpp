@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mt/collection.hpp"
+#include "mt/errors.hpp"
 
 #include <optional>
 #include <string>
@@ -128,6 +129,123 @@ inline std::optional<std::string> unique_index_field_rejection_reason(const Fiel
     }
 
     return std::nullopt;
+}
+
+inline std::vector<std::string> json_path_segments(std::string_view path)
+{
+    if (path == "$")
+    {
+        return {};
+    }
+    if (path.rfind("$.", 0) != 0)
+    {
+        throw BackendError("JSON index paths must be '$' or start with '$.'");
+    }
+
+    std::vector<std::string> segments;
+    std::size_t start = 2;
+    while (start <= path.size())
+    {
+        auto end = path.find('.', start);
+        auto segment = path.substr(
+            start, end == std::string_view::npos ? std::string_view::npos : end - start
+        );
+        if (segment.empty())
+        {
+            throw BackendError("JSON index paths must not contain empty path segments");
+        }
+        segments.push_back(std::string(segment));
+        if (end == std::string_view::npos)
+        {
+            break;
+        }
+        start = end + 1;
+    }
+    return segments;
+}
+
+inline const FieldSpec* find_field_spec(
+    const std::vector<FieldSpec>& fields,
+    std::string_view name
+)
+{
+    for (const auto& field : fields)
+    {
+        if (field.name == name)
+        {
+            return &field;
+        }
+    }
+
+    return nullptr;
+}
+
+inline const FieldSpec* unique_index_leaf_field(
+    const CollectionSpec& spec,
+    const IndexSpec& index
+)
+{
+    auto segments = json_path_segments(index.json_path);
+    if (segments.empty())
+    {
+        throw BackendError("unique index '" + index.name + "' must reference a declared field");
+    }
+
+    const auto* fields = &spec.fields;
+    const FieldSpec* field = nullptr;
+    for (auto segment_index = std::size_t{0}; segment_index < segments.size(); ++segment_index)
+    {
+        field = find_field_spec(*fields, segments[segment_index]);
+        if (!field)
+        {
+            throw BackendError(
+                "unique index '" + index.name + "' references unknown field path '" +
+                index.json_path + "'"
+            );
+        }
+
+        const auto is_leaf = segment_index + 1 == segments.size();
+        if (!is_leaf)
+        {
+            if (field_may_be_null_for_unique_index(*field))
+            {
+                throw BackendError(
+                    "unique index '" + index.name + "' on '" + index.json_path +
+                    "' rejected: parent object field must not be nullable"
+                );
+            }
+            if (field->type != FieldType::Object)
+            {
+                throw BackendError(
+                    "unique index '" + index.name + "' references non-object parent field '" +
+                    field->name + "'"
+                );
+            }
+            fields = &field->fields;
+        }
+    }
+
+    return field;
+}
+
+inline void validate_unique_index_fields(const CollectionSpec& spec)
+{
+    for (const auto& index : spec.indexes)
+    {
+        if (!index.unique)
+        {
+            continue;
+        }
+
+        const auto* field = unique_index_leaf_field(spec, index);
+        if (auto reason = unique_index_field_rejection_reason(*field))
+        {
+            throw BackendError(
+                "unique index '" + index.name + "' on '" + index.json_path +
+                "' rejected: " + *reason
+            );
+        }
+    }
 }
 
 inline void add_compatible_change(

@@ -72,6 +72,8 @@ void PostgresBackend::bootstrap(const BootstrapSpec& spec)
 
 CollectionDescriptor PostgresBackend::ensure_collection(const CollectionSpec& spec)
 {
+    validate_unique_index_fields(spec);
+
     if (!spec.migrations.empty())
     {
         throw BackendError("postgres backend does not support explicit collection migrations");

@@ -67,3 +67,16 @@ void test_sqlite_backend_rejects_incompatible_schema_change()
 
     std::filesystem::remove(path);
 }
+
+void test_sqlite_backend_rejects_nullable_unique_index_schema()
+{
+    auto path = sqlite_test_path("mt_sqlite_collection_nullable_unique_test.sqlite");
+    mt::backends::sqlite::SqliteBackend backend{path.string()};
+    auto spec = sqlite_user_schema(1);
+    spec.fields.push_back(mt::FieldSpec::optional("nickname", mt::FieldType::String));
+    spec.indexes.push_back(mt::IndexSpec::json_path_index("nickname", "$.nickname").make_unique());
+
+    EXPECT_THROW_AS(backend.ensure_collection(spec), mt::BackendError);
+
+    std::filesystem::remove(path);
+}

@@ -62,6 +62,8 @@ void SqliteBackend::bootstrap(const BootstrapSpec& spec)
 
 CollectionDescriptor SqliteBackend::ensure_collection(const CollectionSpec& spec)
 {
+    validate_unique_index_fields(spec);
+
     auto connection = open_bootstrapped_connection(state_);
     connection.execute(detail::PrivateSchemaSql::begin_immediate());
     try

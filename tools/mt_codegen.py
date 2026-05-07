@@ -488,6 +488,15 @@ def validate_unique_object_class_names(fields):
         seen[type_desc.class_name] = type_desc.fields
 
 
+def unique_index_field_rejection_reason(field):
+    type_desc = field["type"]
+    if not isinstance(type_desc, ScalarType):
+        return "unique index field must be a required scalar field"
+    if not field["required"] and (not field.get("has_default", False) or field["default"] is None):
+        return "unique index field must not be nullable"
+    return None
+
+
 def parse_key_spec(schema):
     value = require_present(schema, "key")
     if isinstance(value, str) and value:
@@ -584,6 +593,11 @@ def validate_schema(schema):
         unique = item.get("unique", False)
         if not isinstance(unique, bool):
             fail(f"unique for index {name!r} must be a bool")
+        if unique:
+            field_name = path[2:]
+            reason = unique_index_field_rejection_reason(fields_by_name[field_name])
+            if reason:
+                fail(f"unique index {name!r} on {path!r} rejected: {reason}")
         validated_indexes.append({"name": name, "path": path, "unique": unique})
 
     return {

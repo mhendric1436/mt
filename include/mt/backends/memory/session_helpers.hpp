@@ -79,9 +79,9 @@ inline void check_unique_constraints(
         }
 
         auto write_value = mt::json_path_value(write.value, index.json_path);
-        if (!write_value)
+        if (!write_value || write_value->is_null())
         {
-            continue;
+            throw BackendError("memory backend unique index value must not be null or missing");
         }
 
         for (const auto& [key, current] : collection.current)

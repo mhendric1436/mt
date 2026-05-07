@@ -100,7 +100,7 @@ void test_memory_backend_enforces_unique_indexes()
     );
 }
 
-void test_memory_backend_unique_indexes_allow_same_key_missing_path_and_delete()
+void test_memory_backend_unique_indexes_reject_missing_path_but_allow_same_key_and_delete()
 {
     Harness h;
     auto collection = h.users.descriptor().id;
@@ -121,7 +121,7 @@ void test_memory_backend_unique_indexes_allow_same_key_missing_path_and_delete()
     session->begin_backend_transaction();
     session->upsert_current(collection, first, 1);
     session->upsert_current(collection, same_key, 2);
-    session->upsert_current(collection, missing_path, 3);
+    EXPECT_THROW_AS(session->upsert_current(collection, missing_path, 3), mt::BackendError);
     session->upsert_current(collection, delete_missing, 4);
     EXPECT_THROW_AS(session->upsert_current(collection, conflict, 5), mt::BackendError);
     session->abort_backend_transaction();
