@@ -1,3 +1,4 @@
+#include "../build/generated/order.hpp"
 #include "../build/generated/user.hpp"
 
 #include "mt/backends/memory.hpp"
@@ -197,12 +198,40 @@ void test_generated_user_table_works_with_memory_backend()
     EXPECT_TRUE(indexes[0].unique);
 }
 
+void test_generated_composite_key_table_works_with_memory_backend()
+{
+    EXPECT_EQ(std::string(mt_examples::OrderMapping::key_field), std::string("tenant_id:order_id"));
+
+    mt_examples::Order order{
+        .tenant_id = "tenant:a", .order_id = "order:1", .status = "open", .total_cents = 1299
+    };
+
+    EXPECT_EQ(mt_examples::OrderMapping::key(order), std::string("tenant:a:order:1"));
+
+    auto backend = std::make_shared<mt::backends::memory::MemoryBackend>();
+    mt::Database db{backend};
+    mt::TransactionProvider txs{db};
+    mt::TableProvider tables{db};
+
+    auto orders = tables.table<mt_examples::Order, mt_examples::OrderMapping>();
+
+    txs.run([&](mt::Transaction& tx) { orders.put(tx, order); });
+
+    auto loaded = orders.require("tenant:a:order:1");
+    EXPECT_EQ(loaded, order);
+
+    auto indexes = mt_examples::OrderMapping::indexes();
+    EXPECT_EQ(indexes.size(), std::size_t{1});
+    EXPECT_EQ(indexes[0].name, std::string("status"));
+}
+
 int main()
 {
     test_generated_user_mapping_round_trips();
     test_generated_user_mapping_round_trips_null_optional();
     test_generated_user_mapping_exposes_schema_metadata();
     test_generated_user_table_works_with_memory_backend();
+    test_generated_composite_key_table_works_with_memory_backend();
 
     std::cout << "All mt_codegen tests passed.\n";
     return 0;
