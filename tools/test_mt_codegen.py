@@ -62,12 +62,14 @@ class SchemaValidationTests(unittest.TestCase):
 
         rendered = mt_codegen.render(validated)
 
-        self.assertIn('static constexpr std::string_view key_field = "id";', rendered)
+        self.assertIn('static constexpr std::string_view field_id = "id";', rendered)
+        self.assertIn("static constexpr std::string_view key_field = field_id;", rendered)
+        self.assertIn('static constexpr std::string_view index_0_path = "$.email";', rendered)
         self.assertIn("static std::vector<mt::FieldSpec> fields()", rendered)
-        self.assertIn('mt::FieldSpec::string("id").mark_required(true)', rendered)
-        self.assertIn('mt::FieldSpec::array("tags", mt::FieldType::String)', rendered)
-        self.assertIn('mt::FieldSpec::object("address"', rendered)
-        self.assertIn('mt::FieldSpec::boolean("active")', rendered)
+        self.assertIn("mt::FieldSpec::string(std::string(field_id)).mark_required(true)", rendered)
+        self.assertIn("mt::FieldSpec::array(std::string(field_tags), mt::FieldType::String)", rendered)
+        self.assertIn("mt::FieldSpec::object(std::string(field_address)", rendered)
+        self.assertIn("mt::FieldSpec::boolean(std::string(field_active))", rendered)
         self.assertIn(".with_default(mt::Json(true))", rendered)
 
     def test_json_field_parses_type_descriptor(self):
@@ -79,7 +81,7 @@ class SchemaValidationTests(unittest.TestCase):
 
         self.assertEqual(validated["fields"][3]["type"], mt_codegen.JsonType())
         self.assertIn("mt::Json metadata = mt::Json::object", rendered)
-        self.assertIn('mt::FieldSpec::json("metadata")', rendered)
+        self.assertIn("mt::FieldSpec::json(std::string(field_metadata))", rendered)
         self.assertIn('.with_default(mt::Json::object({mt::Json::Member{"role", mt::Json("admin")}}))', rendered)
 
     def test_optional_scalar_field_parses_type_descriptor(self):
@@ -148,7 +150,7 @@ class SchemaValidationTests(unittest.TestCase):
 
         self.assertEqual(validated["fields"][3]["type"].inner.class_name, "LineItem")
         self.assertIn("std::vector<LineItem> items", rendered)
-        self.assertIn('mt::FieldSpec::array_object("items"', rendered)
+        self.assertIn("mt::FieldSpec::array_object(std::string(field_items)", rendered)
         self.assertIn("static mt::Json to_json_array_LineItem", rendered)
         self.assertIn("static std::vector<LineItem> from_json_array_LineItem", rendered)
 
@@ -304,8 +306,12 @@ class SchemaValidationTests(unittest.TestCase):
             validated["key"], mt_codegen.CompositeKey(("tenant_id", "id", "revision"), "::")
         )
         self.assertEqual(validated["key_field"], "tenant_id::id::revision")
+        self.assertIn('static constexpr std::string_view key_separator = "::";', rendered)
         self.assertIn('static constexpr std::string_view key_field = "tenant_id::id::revision";', rendered)
-        self.assertIn('return row.tenant_id + "::" + row.id + "::" + std::to_string(row.revision);', rendered)
+        self.assertIn(
+            "return row.tenant_id + std::string(key_separator) + row.id + std::string(key_separator) + std::to_string(row.revision);",
+            rendered,
+        )
 
     def test_composite_key_requires_declared_string_or_int64_fields(self):
         schema = copy.deepcopy(VALID_SCHEMA)

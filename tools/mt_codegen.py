@@ -256,9 +256,40 @@ def cpp_json_value(type_desc, value, context):
     fail(f"unsupported field type descriptor for {context!r}")
 
 
+def field_constant_name(field_name):
+    return f"field_{field_name}"
+
+
+def field_name_expr(field_name):
+    return f"std::string({field_constant_name(field_name)})"
+
+
+def collect_field_names(fields):
+    names = []
+    seen = set()
+
+    def add(name):
+        if name in seen:
+            return
+        seen.add(name)
+        names.append(name)
+
+    def visit(items):
+        for item in items:
+            add(item["name"])
+            type_desc = item["type"]
+            if isinstance(type_desc, ObjectType):
+                visit(type_desc.fields)
+            elif isinstance(type_desc, ArrayType) and isinstance(type_desc.inner, ObjectType):
+                visit(type_desc.inner.fields)
+
+    visit(fields)
+    return names
+
+
 def cpp_field_spec(field):
     type_desc = field["type"]
-    name = cpp_string(field["name"])
+    name = field_name_expr(field["name"])
 
     if isinstance(type_desc, ScalarType):
         if type_desc.name == "string":
@@ -631,7 +662,7 @@ def append_object_json_helpers(lines, object_type):
     for index, field in enumerate(object_type.fields):
         comma = "," if index + 1 < len(object_type.fields) else ""
         value_expr = cpp_to_json_expr(field["type"], f"row.{field['name']}")
-        lines.append(f"                {{{cpp_string(field['name'])}, {value_expr}}}{comma}")
+        lines.append(f"                {{{field_name_expr(field['name'])}, {value_expr}}}{comma}")
     lines.append("            }")
     lines.append("        );")
     lines.append("    }")
@@ -642,7 +673,7 @@ def append_object_json_helpers(lines, object_type):
     lines.append(f"        return {object_type.class_name}{{")
     for index, field in enumerate(object_type.fields):
         comma = "," if index + 1 < len(object_type.fields) else ""
-        json_expr = f"json[{cpp_string(field['name'])}]"
+        json_expr = f"json[{field_name_expr(field['name'])}]"
         lines.append(f"            .{field['name']} = {json_to_cpp_expr(field['type'], json_expr)}{comma}")
     lines.append("        };")
     lines.append("    }")
@@ -665,7 +696,7 @@ def cpp_key_expr(key_spec, fields):
         parts = []
         for index, field in enumerate(key_spec.fields):
             if index > 0:
-                parts.append(cpp_string(key_spec.separator))
+                parts.append("std::string(key_separator)")
             parts.append(cpp_key_part_expr(field, fields_by_name))
         return " + ".join(parts)
     fail(f"unsupported key descriptor: {key_spec!r}")
@@ -706,7 +737,17 @@ def render(schema):
     lines.append("{")
     lines.append(f"    static constexpr std::string_view table_name = {cpp_string(schema['table_name'])};")
     lines.append(f"    static constexpr int schema_version = {schema['schema_version']};")
-    lines.append(f"    static constexpr std::string_view key_field = {cpp_string(schema['key_field'])};")
+    if isinstance(schema["key"], CompositeKey):
+        lines.append(f"    static constexpr std::string_view key_separator = {cpp_string(schema['key'].separator)};")
+    for field_name in collect_field_names(schema["fields"]):
+        lines.append(f"    static constexpr std::string_view {field_constant_name(field_name)} = {cpp_string(field_name)};")
+    if isinstance(schema["key"], SingleKey):
+        lines.append(f"    static constexpr std::string_view key_field = {field_constant_name(schema['key'].field)};")
+    else:
+        lines.append(f"    static constexpr std::string_view key_field = {cpp_string(schema['key_field'])};")
+    for index, item in enumerate(schema["indexes"]):
+        lines.append(f"    static constexpr std::string_view index_{index}_name = {cpp_string(item['name'])};")
+        lines.append(f"    static constexpr std::string_view index_{index}_path = {cpp_string(item['path'])};")
     lines.append("")
     lines.append(f"    static std::string key(const {class_name}& row)")
     lines.append("    {")
@@ -729,7 +770,7 @@ def render(schema):
     for index, field in enumerate(schema["fields"]):
         comma = "," if index + 1 < len(schema["fields"]) else ""
         value_expr = cpp_to_json_expr(field["type"], f"row.{field['name']}")
-        lines.append(f"                {{{cpp_string(field['name'])}, {value_expr}}}{comma}")
+        lines.append(f"                {{{field_name_expr(field['name'])}, {value_expr}}}{comma}")
     lines.append("            }")
     lines.append("        );")
     lines.append("    }")
@@ -777,7 +818,7 @@ def render(schema):
     lines.append(f"        return {class_name}{{")
     for index, field in enumerate(schema["fields"]):
         comma = "," if index + 1 < len(schema["fields"]) else ""
-        json_expr = f"json[{cpp_string(field['name'])}]"
+        json_expr = f"json[{field_name_expr(field['name'])}]"
         lines.append(f"            .{field['name']} = {json_to_cpp_expr(field['type'], json_expr)}{comma}")
     lines.append("        };")
     lines.append("    }")
@@ -790,8 +831,8 @@ def render(schema):
         for index, item in enumerate(schema["indexes"]):
             comma = "," if index + 1 < len(schema["indexes"]) else ""
             expr = (
-                f"mt::IndexSpec::json_path_index({cpp_string(item['name'])}, "
-                f"{cpp_string(item['path'])})"
+                f"mt::IndexSpec::json_path_index(std::string(index_{index}_name), "
+                f"std::string(index_{index}_path))"
             )
             if item["unique"]:
                 expr += ".make_unique()"
