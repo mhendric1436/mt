@@ -3,7 +3,9 @@
 #include "mt/collection.hpp"
 #include "mt/errors.hpp"
 
+#include <iomanip>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -99,6 +101,11 @@ inline bool field_type_is_unique_index_scalar(FieldType type)
     }
 
     return false;
+}
+
+inline bool field_type_is_index_scalar(FieldType type)
+{
+    return field_type_is_unique_index_scalar(type);
 }
 
 inline bool field_may_be_null_for_unique_index(const FieldSpec& field)
@@ -203,6 +210,155 @@ inline const FieldSpec* index_field(
     }
 
     return field;
+}
+
+inline std::string top_level_index_field_name(const IndexSpec& index)
+{
+    auto segments = json_path_segments(index.json_path);
+    if (segments.size() != 1)
+    {
+        throw BackendError(
+            "index '" + index.name + "' on '" + index.json_path +
+            "' must reference a top-level declared field"
+        );
+    }
+    return segments[0];
+}
+
+inline const Json* top_level_json_value(
+    const Json& value,
+    std::string_view field_name
+)
+{
+    if (!value.is_object())
+    {
+        return nullptr;
+    }
+
+    const auto& object = value.as_object();
+    auto it = object.find(std::string(field_name));
+    if (it == object.end())
+    {
+        return nullptr;
+    }
+
+    return &it->second;
+}
+
+inline const Json* indexed_json_value(
+    const Json& value,
+    const IndexSpec& index
+)
+{
+    return top_level_json_value(value, top_level_index_field_name(index));
+}
+
+inline std::optional<std::string> encode_index_scalar_value(
+    FieldType type,
+    const Json& value
+)
+{
+    switch (type)
+    {
+    case FieldType::String:
+        if (!value.is_string())
+        {
+            return std::nullopt;
+        }
+        return "s:" + value.canonical_string();
+
+    case FieldType::Bool:
+        if (!value.is_bool())
+        {
+            return std::nullopt;
+        }
+        return std::string("b:") + (value.as_bool() ? "1" : "0");
+
+    case FieldType::Int64:
+        if (!value.is_int64())
+        {
+            return std::nullopt;
+        }
+        return "i:" + std::to_string(value.as_int64());
+
+    case FieldType::Double:
+        if (!value.is_double())
+        {
+            return std::nullopt;
+        }
+        {
+            std::ostringstream out;
+            out << std::setprecision(17) << value.as_double();
+            return "d:" + out.str();
+        }
+
+    case FieldType::Json:
+    case FieldType::Optional:
+    case FieldType::Array:
+    case FieldType::Object:
+        return std::nullopt;
+    }
+
+    return std::nullopt;
+}
+
+inline std::optional<std::string> encode_index_scalar_value(
+    const FieldSpec& field,
+    const Json& value
+)
+{
+    return encode_index_scalar_value(field.type, value);
+}
+
+struct IndexedJsonEquality
+{
+    const IndexSpec* index = nullptr;
+    const FieldSpec* field = nullptr;
+    const QueryPredicate* predicate = nullptr;
+    std::string encoded_value;
+};
+
+inline std::optional<IndexedJsonEquality> find_indexed_json_equality(
+    const CollectionSpec& spec,
+    const QuerySpec& query
+)
+{
+    for (const auto& predicate : query.predicates)
+    {
+        if (predicate.op != QueryOp::JsonEquals)
+        {
+            continue;
+        }
+
+        for (const auto& index : spec.indexes)
+        {
+            if (index.json_path != predicate.path)
+            {
+                continue;
+            }
+
+            const auto* field = index_field(spec, index);
+            if (!field_type_is_index_scalar(field->type))
+            {
+                continue;
+            }
+
+            auto encoded = encode_index_scalar_value(*field, predicate.value);
+            if (!encoded)
+            {
+                continue;
+            }
+
+            return IndexedJsonEquality{
+                .index = &index,
+                .field = field,
+                .predicate = &predicate,
+                .encoded_value = std::move(*encoded)
+            };
+        }
+    }
+
+    return std::nullopt;
 }
 
 inline void validate_index_fields(const CollectionSpec& spec)

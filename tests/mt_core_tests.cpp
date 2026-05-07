@@ -375,6 +375,64 @@ void test_table_schema_capability_validation_rejects_nullable_unique_index()
     EXPECT_THROW_AS(mt::require_schema_capabilities(capabilities, spec), mt::BackendError);
 }
 
+void test_index_helpers_extract_top_level_values()
+{
+    auto index = mt::IndexSpec::json_path_index("email", "$.email");
+    auto value = mt::Json::object({{"email", "a@example.com"}, {"active", true}});
+
+    auto* indexed = mt::indexed_json_value(value, index);
+
+    EXPECT_TRUE(indexed != nullptr);
+    EXPECT_EQ(indexed->as_string(), std::string("a@example.com"));
+    EXPECT_TRUE(mt::indexed_json_value(mt::Json::object({{"active", true}}), index) == nullptr);
+}
+
+void test_index_helpers_encode_scalar_values()
+{
+    EXPECT_EQ(
+        *mt::encode_index_scalar_value(mt::FieldType::String, mt::Json("a@example.com")),
+        std::string("s:\"a@example.com\"")
+    );
+    EXPECT_EQ(
+        *mt::encode_index_scalar_value(mt::FieldType::Bool, mt::Json(true)), std::string("b:1")
+    );
+    EXPECT_EQ(
+        *mt::encode_index_scalar_value(mt::FieldType::Int64, mt::Json(std::int64_t{42})),
+        std::string("i:42")
+    );
+    EXPECT_EQ(
+        *mt::encode_index_scalar_value(mt::FieldType::Double, mt::Json(1.5)), std::string("d:1.5")
+    );
+    EXPECT_FALSE(mt::encode_index_scalar_value(mt::FieldType::Int64, mt::Json("42")).has_value());
+    EXPECT_FALSE(
+        mt::encode_index_scalar_value(mt::FieldType::Array, mt::Json::array({})).has_value()
+    );
+}
+
+void test_index_helpers_find_indexed_json_equality()
+{
+    auto spec = user_schema_spec();
+    spec.indexes = {
+        mt::IndexSpec::json_path_index("active", "$.active"),
+        mt::IndexSpec::json_path_index("email", "$.email").make_unique()
+    };
+    auto query = mt::QuerySpec::where_json_eq("$.email", mt::Json("a@example.com"));
+
+    auto match = mt::find_indexed_json_equality(spec, query);
+
+    EXPECT_TRUE(match.has_value());
+    EXPECT_EQ(match->index->name, std::string("email"));
+    EXPECT_EQ(match->field->name, std::string("email"));
+    EXPECT_EQ(match->predicate->path, std::string("$.email"));
+    EXPECT_EQ(match->encoded_value, std::string("s:\"a@example.com\""));
+    EXPECT_FALSE(
+        mt::find_indexed_json_equality(
+            spec, mt::QuerySpec::where_json_eq("$.email", mt::Json(std::int64_t{42}))
+        )
+            .has_value()
+    );
+}
+
 void test_backend_contract_transaction_ids_are_non_empty_and_unique()
 {
     Harness h;
@@ -1271,6 +1329,9 @@ int main()
     test_unique_index_schema_validation_rejects_missing_index_path();
     test_index_schema_validation_rejects_nested_index_path();
     test_table_schema_capability_validation_rejects_nullable_unique_index();
+    test_index_helpers_extract_top_level_values();
+    test_index_helpers_encode_scalar_values();
+    test_index_helpers_find_indexed_json_equality();
     test_backend_contract_transaction_ids_are_non_empty_and_unique();
     test_backend_contract_commit_versions_strictly_increase();
     test_backend_contract_clock_increment_requires_lock_owner();
