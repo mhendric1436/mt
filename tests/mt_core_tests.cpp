@@ -288,6 +288,45 @@ void test_schema_diff_reports_array_object_changes()
     EXPECT_EQ(diff.compatible_changes[0].path, std::string("$.items.note"));
 }
 
+void test_unique_index_field_policy_allows_required_scalars()
+{
+    EXPECT_FALSE(
+        mt::unique_index_field_rejection_reason(mt::FieldSpec::string("email")).has_value()
+    );
+    EXPECT_FALSE(
+        mt::unique_index_field_rejection_reason(mt::FieldSpec::boolean("active")).has_value()
+    );
+    EXPECT_FALSE(
+        mt::unique_index_field_rejection_reason(mt::FieldSpec::int64("login_count")).has_value()
+    );
+    EXPECT_FALSE(
+        mt::unique_index_field_rejection_reason(mt::FieldSpec::double_value("score")).has_value()
+    );
+}
+
+void test_unique_index_field_policy_rejects_nullable_fields()
+{
+    auto optional = mt::FieldSpec::optional("nickname", mt::FieldType::String);
+    auto not_required = mt::FieldSpec::string("external_id").mark_required(false);
+    auto null_default =
+        mt::FieldSpec::string("legacy_id").mark_required(false).with_default(mt::Json::null());
+
+    EXPECT_TRUE(mt::unique_index_field_rejection_reason(optional).has_value());
+    EXPECT_TRUE(mt::unique_index_field_rejection_reason(not_required).has_value());
+    EXPECT_TRUE(mt::unique_index_field_rejection_reason(null_default).has_value());
+}
+
+void test_unique_index_field_policy_rejects_non_scalar_fields()
+{
+    auto json = mt::FieldSpec::json("metadata");
+    auto array = mt::FieldSpec::array("tags", mt::FieldType::String);
+    auto object = mt::FieldSpec::object("profile", {mt::FieldSpec::string("handle")});
+
+    EXPECT_TRUE(mt::unique_index_field_rejection_reason(json).has_value());
+    EXPECT_TRUE(mt::unique_index_field_rejection_reason(array).has_value());
+    EXPECT_TRUE(mt::unique_index_field_rejection_reason(object).has_value());
+}
+
 void test_backend_contract_transaction_ids_are_non_empty_and_unique()
 {
     Harness h;
@@ -1177,6 +1216,9 @@ int main()
     test_schema_diff_rejects_array_value_type_change();
     test_schema_diff_reports_nested_object_changes();
     test_schema_diff_reports_array_object_changes();
+    test_unique_index_field_policy_allows_required_scalars();
+    test_unique_index_field_policy_rejects_nullable_fields();
+    test_unique_index_field_policy_rejects_non_scalar_fields();
     test_backend_contract_transaction_ids_are_non_empty_and_unique();
     test_backend_contract_commit_versions_strictly_increase();
     test_backend_contract_clock_increment_requires_lock_owner();

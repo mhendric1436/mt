@@ -2,6 +2,7 @@
 
 #include "mt/collection.hpp"
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -78,6 +79,55 @@ inline std::string field_type_name(FieldType type)
 inline bool field_addition_is_compatible(const FieldSpec& field)
 {
     return !field.required || field.has_default || field.type == FieldType::Optional;
+}
+
+inline bool field_type_is_unique_index_scalar(FieldType type)
+{
+    switch (type)
+    {
+    case FieldType::String:
+    case FieldType::Bool:
+    case FieldType::Int64:
+    case FieldType::Double:
+        return true;
+    case FieldType::Json:
+    case FieldType::Optional:
+    case FieldType::Array:
+    case FieldType::Object:
+        return false;
+    }
+
+    return false;
+}
+
+inline bool field_may_be_null_for_unique_index(const FieldSpec& field)
+{
+    if (field.type == FieldType::Optional || field.type == FieldType::Json)
+    {
+        return true;
+    }
+
+    if (!field.required && (!field.has_default || field.default_value.is_null()))
+    {
+        return true;
+    }
+
+    return false;
+}
+
+inline std::optional<std::string> unique_index_field_rejection_reason(const FieldSpec& field)
+{
+    if (!field_type_is_unique_index_scalar(field.type))
+    {
+        return "unique index field must be a required scalar field";
+    }
+
+    if (field_may_be_null_for_unique_index(field))
+    {
+        return "unique index field must not be nullable";
+    }
+
+    return std::nullopt;
 }
 
 inline void add_compatible_change(
