@@ -89,7 +89,7 @@ inline void require_schema_capabilities(
         }
     }
 
-    validate_unique_index_fields(spec);
+    validate_index_fields(spec);
 }
 
 template <class Mapping, class Row>

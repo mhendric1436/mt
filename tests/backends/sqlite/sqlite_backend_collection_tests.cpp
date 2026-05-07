@@ -80,3 +80,16 @@ void test_sqlite_backend_rejects_nullable_unique_index_schema()
 
     std::filesystem::remove(path);
 }
+
+void test_sqlite_backend_rejects_nested_index_schema()
+{
+    auto path = sqlite_test_path("mt_sqlite_collection_nested_index_test.sqlite");
+    mt::backends::sqlite::SqliteBackend backend{path.string()};
+    auto spec = sqlite_user_schema(1);
+    spec.fields.push_back(mt::FieldSpec::object("profile", {mt::FieldSpec::string("handle")}));
+    spec.indexes.push_back(mt::IndexSpec::json_path_index("handle", "$.profile.handle"));
+
+    EXPECT_THROW_AS(backend.ensure_collection(spec), mt::BackendError);
+
+    std::filesystem::remove(path);
+}

@@ -1050,6 +1050,28 @@ void test_postgres_rejects_nullable_unique_index_schema(std::string_view dsn)
     }
 }
 
+void test_postgres_rejects_nested_index_schema(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    auto spec = postgres_user_schema("postgres_nested_index_schema_users");
+    spec.fields.push_back(mt::FieldSpec::object("profile", {mt::FieldSpec::string("handle")}));
+    spec.indexes.push_back(mt::IndexSpec::json_path_index("handle", "$.profile.handle"));
+
+    auto rejected = false;
+    try
+    {
+        backend.ensure_collection(spec);
+    }
+    catch (const mt::BackendError&)
+    {
+        rejected = true;
+    }
+    if (!rejected)
+    {
+        throw mt::BackendError("postgres accepted nested index schema");
+    }
+}
+
 void test_postgres_accepts_defaulted_schema_change(std::string_view dsn)
 {
     auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
@@ -1166,6 +1188,7 @@ int main()
         test_postgres_core_overlapping_orthogonal_transactions_commit(dsn);
         test_postgres_collection_metadata_round_trips(dsn);
         test_postgres_rejects_nullable_unique_index_schema(dsn);
+        test_postgres_rejects_nested_index_schema(dsn);
         test_postgres_accepts_defaulted_schema_change(dsn);
         test_postgres_rejects_incompatible_schema_change(dsn);
         test_postgres_rejects_explicit_migration_specs(dsn);

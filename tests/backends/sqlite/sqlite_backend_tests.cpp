@@ -11,6 +11,7 @@ void test_sqlite_backend_ensure_collection_persists_across_instances();
 void test_sqlite_backend_accepts_compatible_schema_change();
 void test_sqlite_backend_rejects_incompatible_schema_change();
 void test_sqlite_backend_rejects_nullable_unique_index_schema();
+void test_sqlite_backend_rejects_nested_index_schema();
 void test_sqlite_backend_session_commits_and_aborts_transactions();
 void test_sqlite_backend_session_rejects_invalid_lifecycle();
 void test_sqlite_backend_session_rejects_unsupported_queries();
@@ -49,6 +50,7 @@ int main()
     test_sqlite_backend_accepts_compatible_schema_change();
     test_sqlite_backend_rejects_incompatible_schema_change();
     test_sqlite_backend_rejects_nullable_unique_index_schema();
+    test_sqlite_backend_rejects_nested_index_schema();
     test_sqlite_backend_session_commits_and_aborts_transactions();
     test_sqlite_backend_session_rejects_invalid_lifecycle();
     test_sqlite_backend_session_rejects_unsupported_queries();

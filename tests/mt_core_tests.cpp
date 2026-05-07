@@ -342,7 +342,7 @@ void test_unique_index_schema_validation_rejects_nullable_index()
     spec.fields.push_back(mt::FieldSpec::optional("nickname", mt::FieldType::String));
     spec.indexes.push_back(mt::IndexSpec::json_path_index("nickname", "$.nickname").make_unique());
 
-    EXPECT_THROW_AS(mt::validate_unique_index_fields(spec), mt::BackendError);
+    EXPECT_THROW_AS(mt::validate_index_fields(spec), mt::BackendError);
 }
 
 void test_unique_index_schema_validation_rejects_missing_index_path()
@@ -350,7 +350,16 @@ void test_unique_index_schema_validation_rejects_missing_index_path()
     auto spec = user_schema_spec();
     spec.indexes.push_back(mt::IndexSpec::json_path_index("missing", "$.missing").make_unique());
 
-    EXPECT_THROW_AS(mt::validate_unique_index_fields(spec), mt::BackendError);
+    EXPECT_THROW_AS(mt::validate_index_fields(spec), mt::BackendError);
+}
+
+void test_index_schema_validation_rejects_nested_index_path()
+{
+    auto spec = user_schema_spec();
+    spec.fields.push_back(mt::FieldSpec::object("profile", {mt::FieldSpec::string("handle")}));
+    spec.indexes.push_back(mt::IndexSpec::json_path_index("handle", "$.profile.handle"));
+
+    EXPECT_THROW_AS(mt::validate_index_fields(spec), mt::BackendError);
 }
 
 void test_table_schema_capability_validation_rejects_nullable_unique_index()
@@ -1260,6 +1269,7 @@ int main()
     test_unique_index_field_policy_rejects_non_scalar_fields();
     test_unique_index_schema_validation_rejects_nullable_index();
     test_unique_index_schema_validation_rejects_missing_index_path();
+    test_index_schema_validation_rejects_nested_index_path();
     test_table_schema_capability_validation_rejects_nullable_unique_index();
     test_backend_contract_transaction_ids_are_non_empty_and_unique();
     test_backend_contract_commit_versions_strictly_increase();

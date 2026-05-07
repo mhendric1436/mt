@@ -72,7 +72,7 @@ void PostgresBackend::bootstrap(const BootstrapSpec& spec)
 
 CollectionDescriptor PostgresBackend::ensure_collection(const CollectionSpec& spec)
 {
-    validate_unique_index_fields(spec);
+    validate_index_fields(spec);
 
     if (!spec.migrations.empty())
     {

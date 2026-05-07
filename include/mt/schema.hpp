@@ -180,64 +180,41 @@ inline const FieldSpec* find_field_spec(
     return nullptr;
 }
 
-inline const FieldSpec* unique_index_leaf_field(
+inline const FieldSpec* index_field(
     const CollectionSpec& spec,
     const IndexSpec& index
 )
 {
     auto segments = json_path_segments(index.json_path);
-    if (segments.empty())
+    if (segments.size() != 1)
     {
-        throw BackendError("unique index '" + index.name + "' must reference a declared field");
+        throw BackendError(
+            "index '" + index.name + "' on '" + index.json_path +
+            "' must reference a top-level declared field"
+        );
     }
 
-    const auto* fields = &spec.fields;
-    const FieldSpec* field = nullptr;
-    for (auto segment_index = std::size_t{0}; segment_index < segments.size(); ++segment_index)
+    auto field = find_field_spec(spec.fields, segments[0]);
+    if (!field)
     {
-        field = find_field_spec(*fields, segments[segment_index]);
-        if (!field)
-        {
-            throw BackendError(
-                "unique index '" + index.name + "' references unknown field path '" +
-                index.json_path + "'"
-            );
-        }
-
-        const auto is_leaf = segment_index + 1 == segments.size();
-        if (!is_leaf)
-        {
-            if (field_may_be_null_for_unique_index(*field))
-            {
-                throw BackendError(
-                    "unique index '" + index.name + "' on '" + index.json_path +
-                    "' rejected: parent object field must not be nullable"
-                );
-            }
-            if (field->type != FieldType::Object)
-            {
-                throw BackendError(
-                    "unique index '" + index.name + "' references non-object parent field '" +
-                    field->name + "'"
-                );
-            }
-            fields = &field->fields;
-        }
+        throw BackendError(
+            "index '" + index.name + "' references unknown field path '" + index.json_path + "'"
+        );
     }
 
     return field;
 }
 
-inline void validate_unique_index_fields(const CollectionSpec& spec)
+inline void validate_index_fields(const CollectionSpec& spec)
 {
     for (const auto& index : spec.indexes)
     {
+        const auto* field = index_field(spec, index);
         if (!index.unique)
         {
             continue;
         }
 
-        const auto* field = unique_index_leaf_field(spec, index);
         if (auto reason = unique_index_field_rejection_reason(*field))
         {
             throw BackendError(
@@ -246,6 +223,11 @@ inline void validate_unique_index_fields(const CollectionSpec& spec)
             );
         }
     }
+}
+
+inline void validate_unique_index_fields(const CollectionSpec& spec)
+{
+    validate_index_fields(spec);
 }
 
 inline void add_compatible_change(

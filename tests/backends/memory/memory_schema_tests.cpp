@@ -240,6 +240,16 @@ void test_memory_backend_rejects_nullable_unique_index_schema()
     EXPECT_THROW_AS(backend.ensure_collection(spec), mt::BackendError);
 }
 
+void test_memory_backend_rejects_nested_index_schema()
+{
+    mt::backends::memory::MemoryBackend backend;
+    auto spec = user_schema_spec();
+    spec.fields.push_back(mt::FieldSpec::object("profile", {mt::FieldSpec::string("handle")}));
+    spec.indexes.push_back(mt::IndexSpec::json_path_index("handle", "$.profile.handle"));
+
+    EXPECT_THROW_AS(backend.ensure_collection(spec), mt::BackendError);
+}
+
 void test_memory_backend_rejects_migrations()
 {
     auto backend = std::make_shared<mt::backends::memory::MemoryBackend>();
