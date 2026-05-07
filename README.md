@@ -26,6 +26,8 @@ Implemented:
 - read-your-writes for point reads, `list`, key-prefix `query`, and JSON equality `query`
 - small built-in JSON value type with stable canonical hashing
 - in-memory backend for tests, local development, and process-local use cases
+- unique index enforcement (SQLite and PostgreSQL)
+- composite key generation from multiple fields
 
 Known limitations:
 
@@ -113,10 +115,11 @@ Example:
 python3 tools/mt_codegen.py ./my_schemas/user.mt.json -o ./generated/user.hpp
 ```
 
-The example schema in this repository lives at:
+Example schemas in this repository:
 
 ```text
-examples/schemas/user.mt.json
+examples/schemas/user.mt.json   — simple single-field key
+examples/schemas/order.mt.json  — composite key and int64 fields
 ```
 
 `make check` generates this example into `build/generated/user.hpp` and compiles a small
@@ -129,9 +132,16 @@ Supported field types:
 - `bool`
 - `int64`
 - `double`
+- `json`
 - `optional`
 - `array`
 - `object`
+
+Composite keys are supported by specifying multiple fields and a separator:
+
+```json
+{"key": {"fields": ["tenant_id", "order_id", "revision"], "separator": ":"}}
+```
 
 Generated mappings expose table name, schema version, key field, field metadata, and
 index metadata. Backends use that metadata to track accepted schema snapshots.
@@ -247,12 +257,19 @@ handle retries at a higher level.
 
 - `include/mt/core.hpp`: umbrella header for the full public API
 - `include/mt/json.hpp`: JSON value and stable hashing
+- `include/mt/json_parser.hpp`: small JSON parser used by backends and tests
 - `include/mt/hash.hpp`: hash value type
 - `include/mt/errors.hpp`: exception types
 - `include/mt/query.hpp`: query, list, and index model
-- `include/mt/collection.hpp`: collection descriptors and migration specs
+- `include/mt/collection.hpp`: collection descriptors, field specs, index specs, and migration specs
+- `include/mt/schema.hpp`: pure schema comparison helpers (diff, index validation, scalar encoding)
+- `include/mt/metadata_cache.hpp`: in-process collection descriptor cache
 - `include/mt/types.hpp`: document envelopes and write envelopes
-- `include/mt/backend.hpp`: backend interfaces
+- `include/mt/backend.hpp`: backend interfaces umbrella (aggregates `include/mt/backend/`)
+- `include/mt/backend/capabilities.hpp`: query and schema capability flags
+- `include/mt/backend/database_backend.hpp`: `IDatabaseBackend` interface
+- `include/mt/backend/session.hpp`: `IBackendSession` composed interface
+- `include/mt/backend/lifecycle.hpp`, `clock.hpp`, `reader.hpp`, `writer.hpp`, `active_transactions.hpp`: session interface mixins
 - `include/mt/backends/memory.hpp`: in-memory backend
 - `include/mt/backends/memory/`: memory backend implementation subheaders
 - `include/mt/database.hpp`: database facade
@@ -260,12 +277,15 @@ handle retries at a higher level.
 - `include/mt/table.hpp`: mapping concept and typed table facade
 - `include/mt/backends/sqlite.hpp`: dependency-free SQLite backend public header
 - `include/mt/backends/postgres.hpp`: dependency-free PostgreSQL backend public header
+- `src/backends/common/schema_codec.hpp`: shared field and index serialization used by SQLite and PostgreSQL backends
 - `src/backends/`: optional backend implementation files
 - `src/backends/sqlite/README.md`: SQLite backend implementation layout
 - `src/backends/postgres/README.md`: PostgreSQL backend implementation layout
 - `tests/backends/sqlite/README.md`: SQLite backend test layout
+- `tests/backends/postgres/README.md`: PostgreSQL backend test layout
 - `tools/mt_codegen.py`: JSON metadata to C++ header generator
-- `examples/schemas/user.mt.json`: example schema used by documentation and tests
+- `examples/schemas/user.mt.json`: simple single-field key example schema
+- `examples/schemas/order.mt.json`: composite key and int64 field example schema
 - `tests/mt_core_tests.cpp`: test suite
 - `tests/mt_codegen_tests.cpp`: generated-code test suite
 - `src/mt_core.cpp`: header syntax-check translation unit
@@ -280,13 +300,19 @@ Backends implement two interfaces:
 - `mt::IDatabaseBackend`
 - `mt::IBackendSession`
 
+`IBackendSession` is composed from five mixin interfaces (`IBackendLifecycle`,
+`IBackendClock`, `IBackendActiveTransactions`, `IBackendReader`, `IBackendWriter`) defined
+under `include/mt/backend/`. Backend implementations inherit from `IBackendSession`.
+
 The core expects the backend to provide snapshot reads, current metadata reads,
 history insertion, current-row upserts, clock/version operations, and backend-specific
 transaction IDs.
 
-Backends also report `BackendCapabilities`. The typed table API uses those capabilities
-to reject unsupported query, ordering, index, and migration features before invoking a
-backend session. Backend implementations should still validate defensively.
+Backends also report `BackendCapabilities`, which groups `QueryCapabilities` (key-prefix,
+JSON equals, JSON contains, ordering) and `SchemaCapabilities` (json_indexes,
+unique_indexes, migrations). The typed table API uses those capabilities to reject
+unsupported query, ordering, index, and migration features before invoking a backend
+session. Backend implementations should still validate defensively.
 
 Backend authors should read `docs/backend_contract.md` before implementing
 `IDatabaseBackend`. They should also follow `docs/backend_implementation.md` for
