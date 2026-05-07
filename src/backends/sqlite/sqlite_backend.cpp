@@ -1,5 +1,6 @@
 #include "mt/backends/sqlite.hpp"
 
+#include "sqlite_constraints.hpp"
 #include "sqlite_detail.hpp"
 #include "sqlite_schema.hpp"
 #include "sqlite_session.hpp"
@@ -87,6 +88,9 @@ CollectionDescriptor SqliteBackend::ensure_collection(const CollectionSpec& spec
             );
         }
 
+        validate_sqlite_index_update(*stored, spec);
+        auto existing_descriptor = load_collection_descriptor(connection, spec.logical_name);
+        rebuild_added_unique_indexes(connection, existing_descriptor.id, *stored, spec);
         update_collection(connection, spec);
         auto descriptor = load_collection_descriptor(connection, spec.logical_name);
         connection.execute(detail::PrivateSchemaSql::commit());

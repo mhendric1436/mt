@@ -33,6 +33,31 @@ std::optional<CollectionSpec> load_collection_spec(
     };
 }
 
+CollectionSpec load_collection_spec(
+    detail::Connection& connection,
+    CollectionId collection
+)
+{
+    detail::Statement statement{
+        connection.get(), detail::PrivateSchemaSql::select_collection_spec_by_id()
+    };
+    statement.bind_int64(1, collection);
+    if (!statement.step())
+    {
+        throw BackendError("sqlite collection not found");
+    }
+
+    auto schema_json = statement.column_text(3);
+    auto indexes_json = statement.column_text(4);
+    return CollectionSpec{
+        .logical_name = statement.column_text(0),
+        .indexes = common::deserialize_indexes(indexes_json),
+        .schema_version = static_cast<int>(statement.column_int64(1)),
+        .key_field = statement.column_text(2),
+        .fields = common::deserialize_fields(schema_json)
+    };
+}
+
 CollectionDescriptor load_collection_descriptor(
     detail::Connection& connection,
     std::string_view logical_name

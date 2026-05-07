@@ -1,5 +1,29 @@
 #include "sqlite_test_support.hpp"
 
+namespace
+{
+std::int64_t count_collection_unique_index_entries(
+    const std::filesystem::path& path,
+    mt::CollectionId collection
+)
+{
+    auto connection = mt::backends::sqlite::detail::Connection::open(path.string());
+    mt::backends::sqlite::detail::Statement count{
+        connection.get(), "SELECT COUNT(*) FROM mt_unique_index_values WHERE collection_id = ?"
+    };
+    count.bind_int64(1, collection);
+    EXPECT_TRUE(count.step());
+    return count.column_int64(0);
+}
+
+mt::CollectionSpec sqlite_user_schema_without_indexes(int schema_version = 1)
+{
+    auto spec = sqlite_user_schema(schema_version);
+    spec.indexes = {};
+    return spec;
+}
+} // namespace
+
 void test_sqlite_backend_ensure_collection_creates_and_gets_descriptor()
 {
     auto path = sqlite_test_path("mt_sqlite_collection_create_test.sqlite");
@@ -48,6 +72,84 @@ void test_sqlite_backend_accepts_compatible_schema_change()
     EXPECT_EQ(second.id, first.id);
     EXPECT_EQ(second.schema_version, 2);
     EXPECT_EQ(loaded.schema_version, 2);
+
+    std::filesystem::remove(path);
+}
+
+void test_sqlite_backend_rebuilds_added_unique_index()
+{
+    auto path = sqlite_test_path("mt_sqlite_collection_unique_rebuild_test.sqlite");
+    mt::backends::sqlite::SqliteBackend backend{path.string()};
+
+    auto initial = sqlite_user_schema_without_indexes(1);
+    auto descriptor = backend.ensure_collection(initial);
+
+    auto first = mt::WriteEnvelope{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Put,
+        .value = sqlite_user_json("user:1", "one@example.com"),
+        .value_hash = test_hash(0xE1)
+    };
+    auto second = mt::WriteEnvelope{
+        .collection = descriptor.id,
+        .key = "user:2",
+        .kind = mt::WriteKind::Put,
+        .value = sqlite_user_json("user:2", "two@example.com"),
+        .value_hash = test_hash(0xE2)
+    };
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        session->upsert_current(descriptor.id, first, 1);
+        session->upsert_current(descriptor.id, second, 2);
+        session->commit_backend_transaction();
+    }
+    EXPECT_EQ(count_collection_unique_index_entries(path, descriptor.id), std::int64_t{0});
+
+    auto updated = sqlite_user_schema(2);
+    auto rebuilt = backend.ensure_collection(updated);
+
+    EXPECT_EQ(rebuilt.id, descriptor.id);
+    EXPECT_EQ(count_collection_unique_index_entries(path, descriptor.id), std::int64_t{2});
+
+    std::filesystem::remove(path);
+}
+
+void test_sqlite_backend_rejects_added_unique_index_with_existing_duplicates()
+{
+    auto path = sqlite_test_path("mt_sqlite_collection_unique_rebuild_duplicate_test.sqlite");
+    mt::backends::sqlite::SqliteBackend backend{path.string()};
+
+    auto initial = sqlite_user_schema_without_indexes(1);
+    auto descriptor = backend.ensure_collection(initial);
+
+    auto first = mt::WriteEnvelope{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Put,
+        .value = sqlite_user_json("user:1", "same@example.com"),
+        .value_hash = test_hash(0xE3)
+    };
+    auto second = mt::WriteEnvelope{
+        .collection = descriptor.id,
+        .key = "user:2",
+        .kind = mt::WriteKind::Put,
+        .value = sqlite_user_json("user:2", "same@example.com"),
+        .value_hash = test_hash(0xE4)
+    };
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        session->upsert_current(descriptor.id, first, 1);
+        session->upsert_current(descriptor.id, second, 2);
+        session->commit_backend_transaction();
+    }
+
+    auto updated = sqlite_user_schema(2);
+
+    EXPECT_THROW_AS(backend.ensure_collection(updated), mt::BackendError);
+    EXPECT_EQ(count_collection_unique_index_entries(path, descriptor.id), std::int64_t{0});
 
     std::filesystem::remove(path);
 }

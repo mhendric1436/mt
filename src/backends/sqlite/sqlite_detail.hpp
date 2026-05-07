@@ -389,10 +389,29 @@ struct PrivateSchemaSql
                ")";
     }
 
+    static std::string create_unique_index_values_table()
+    {
+        return "CREATE TABLE IF NOT EXISTS mt_unique_index_values ("
+               "collection_id INTEGER NOT NULL,"
+               "index_name TEXT NOT NULL,"
+               "encoded_value TEXT NOT NULL,"
+               "document_key TEXT NOT NULL,"
+               "PRIMARY KEY (collection_id, index_name, document_key),"
+               "UNIQUE (collection_id, index_name, encoded_value),"
+               "FOREIGN KEY (collection_id) REFERENCES mt_collections(id)"
+               ")";
+    }
+
     static std::string select_collection_spec_by_logical_name()
     {
         return "SELECT logical_name, schema_version, key_field, schema_json, indexes_json "
                "FROM mt_collections WHERE logical_name = ?";
+    }
+
+    static std::string select_collection_spec_by_id()
+    {
+        return "SELECT logical_name, schema_version, key_field, schema_json, indexes_json "
+               "FROM mt_collections WHERE id = ?";
     }
 
     static std::string select_collection_descriptor_by_logical_name()
@@ -425,6 +444,36 @@ struct PrivateSchemaSql
         return "SELECT document_key, value_json "
                "FROM mt_current "
                "WHERE collection_id = ? AND deleted = 0 AND document_key <> ?";
+    }
+
+    static std::string delete_unique_index_values_for_key()
+    {
+        return "DELETE FROM mt_unique_index_values "
+               "WHERE collection_id = ? AND document_key = ?";
+    }
+
+    static std::string insert_unique_index_value()
+    {
+        return "INSERT INTO mt_unique_index_values "
+               "(collection_id, index_name, encoded_value, document_key) "
+               "VALUES (?, ?, ?, ?)";
+    }
+
+    static std::string select_unique_index_conflict()
+    {
+        return "SELECT document_key "
+               "FROM mt_unique_index_values "
+               "WHERE collection_id = ? AND index_name = ? AND encoded_value = ? "
+               "AND document_key <> ? "
+               "LIMIT 1";
+    }
+
+    static std::string select_current_documents_for_index_rebuild()
+    {
+        return "SELECT document_key, value_json "
+               "FROM mt_current "
+               "WHERE collection_id = ? AND deleted = 0 "
+               "ORDER BY document_key";
     }
 
     static std::string select_clock_version()
@@ -564,7 +613,8 @@ struct PrivateSchemaSql
                "WHERE type = 'table' "
                "AND name IN ("
                "'mt_meta', 'mt_clock', 'mt_collections', "
-               "'mt_active_transactions', 'mt_history', 'mt_current')";
+               "'mt_active_transactions', 'mt_history', 'mt_current', "
+               "'mt_unique_index_values')";
     }
 
     static std::string select_metadata_schema_version()

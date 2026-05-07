@@ -36,7 +36,7 @@ void test_sqlite_backend_bootstrap_creates_private_metadata()
         connection.get(), mt::backends::sqlite::detail::PrivateSchemaSql::count_private_tables()
     };
     EXPECT_TRUE(tables.step());
-    EXPECT_EQ(tables.column_int64(0), std::int64_t{6});
+    EXPECT_EQ(tables.column_int64(0), std::int64_t{7});
 
     mt::backends::sqlite::detail::Statement metadata{
         connection.get(),

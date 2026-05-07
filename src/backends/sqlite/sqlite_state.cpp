@@ -38,6 +38,8 @@ void bootstrap_schema(
     connection.execute(detail::PrivateSchemaSql::create_history_snapshot_index());
 
     connection.execute(detail::PrivateSchemaSql::create_current_table());
+
+    connection.execute(detail::PrivateSchemaSql::create_unique_index_values_table());
 }
 
 void ensure_bootstrapped(

@@ -17,6 +17,11 @@ std::optional<CollectionSpec> load_collection_spec(
     std::string_view logical_name
 );
 
+CollectionSpec load_collection_spec(
+    detail::Connection& connection,
+    CollectionId collection
+);
+
 CollectionDescriptor load_collection_descriptor(
     detail::Connection& connection,
     std::string_view logical_name

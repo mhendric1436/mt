@@ -1,5 +1,27 @@
 #include "sqlite_test_support.hpp"
 
+namespace
+{
+std::int64_t count_unique_index_entries(
+    const std::filesystem::path& path,
+    mt::CollectionId collection,
+    std::string_view index_name,
+    std::string_view encoded_value
+)
+{
+    auto connection = mt::backends::sqlite::detail::Connection::open(path.string());
+    mt::backends::sqlite::detail::Statement count{
+        connection.get(), "SELECT COUNT(*) FROM mt_unique_index_values "
+                          "WHERE collection_id = ? AND index_name = ? AND encoded_value = ?"
+    };
+    count.bind_int64(1, collection);
+    count.bind_text(2, index_name);
+    count.bind_text(3, encoded_value);
+    EXPECT_TRUE(count.step());
+    return count.column_int64(0);
+}
+} // namespace
+
 void test_sqlite_backend_document_writes_insert_history_and_current()
 {
     auto path = sqlite_test_path("mt_sqlite_document_write_test.sqlite");
@@ -49,6 +71,10 @@ void test_sqlite_backend_document_writes_insert_history_and_current()
     EXPECT_EQ(current.column_text(2), std::string("1213"));
     EXPECT_EQ(
         current.column_text(3), sqlite_user_json("user:1", "a@example.com").canonical_string()
+    );
+    EXPECT_EQ(
+        count_unique_index_entries(path, descriptor.id, "email", "s:\"a@example.com\""),
+        std::int64_t{1}
     );
 
     std::filesystem::remove(path);
@@ -500,6 +526,61 @@ void test_sqlite_backend_enforces_unique_indexes()
         EXPECT_THROW_AS(session->upsert_current(descriptor.id, conflict, 2), mt::BackendError);
         session->abort_backend_transaction();
     }
+
+    std::filesystem::remove(path);
+}
+
+void test_sqlite_backend_updates_and_deletes_unique_index_entries()
+{
+    auto path = sqlite_test_path("mt_sqlite_unique_index_update_delete_test.sqlite");
+    mt::backends::sqlite::SqliteBackend backend{path.string()};
+    auto descriptor = backend.ensure_collection(sqlite_user_schema(1));
+
+    auto first = mt::WriteEnvelope{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Put,
+        .value = sqlite_user_json("user:1", "old@example.com"),
+        .value_hash = test_hash(0xD1)
+    };
+    auto updated = mt::WriteEnvelope{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Put,
+        .value = sqlite_user_json("user:1", "new@example.com"),
+        .value_hash = test_hash(0xD2)
+    };
+    auto deleted = mt::WriteEnvelope{
+        .collection = descriptor.id,
+        .key = "user:1",
+        .kind = mt::WriteKind::Delete,
+        .value_hash = test_hash(0xD3)
+    };
+
+    auto session = backend.open_session();
+    session->begin_backend_transaction();
+    session->upsert_current(descriptor.id, first, 1);
+    session->upsert_current(descriptor.id, updated, 2);
+    session->commit_backend_transaction();
+
+    EXPECT_EQ(
+        count_unique_index_entries(path, descriptor.id, "email", "s:\"old@example.com\""),
+        std::int64_t{0}
+    );
+    EXPECT_EQ(
+        count_unique_index_entries(path, descriptor.id, "email", "s:\"new@example.com\""),
+        std::int64_t{1}
+    );
+
+    session = backend.open_session();
+    session->begin_backend_transaction();
+    session->upsert_current(descriptor.id, deleted, 3);
+    session->commit_backend_transaction();
+
+    EXPECT_EQ(
+        count_unique_index_entries(path, descriptor.id, "email", "s:\"new@example.com\""),
+        std::int64_t{0}
+    );
 
     std::filesystem::remove(path);
 }
