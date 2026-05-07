@@ -3,13 +3,20 @@
 #include "../common/schema_codec.hpp"
 
 #include "mt/errors.hpp"
+#include "mt/schema.hpp"
 
+#include <cctype>
 #include <cstdint>
 #include <string>
 #include <utility>
 
 namespace mt::backends::postgres::detail
 {
+
+std::string physical_unique_index_name(
+    CollectionId collection,
+    const IndexSpec& index
+);
 
 namespace
 {
@@ -21,6 +28,86 @@ std::uint64_t parse_u64(std::string_view value)
 int parse_int(std::string_view value)
 {
     return std::stoi(std::string(value));
+}
+
+std::string sql_literal(std::string_view value)
+{
+    std::string escaped;
+    escaped.reserve(value.size() + 2);
+    escaped.push_back('\'');
+    for (auto ch : value)
+    {
+        if (ch == '\'')
+        {
+            escaped += "''";
+        }
+        else
+        {
+            escaped.push_back(ch);
+        }
+    }
+    escaped.push_back('\'');
+    return escaped;
+}
+
+std::string safe_identifier_part(std::string_view value)
+{
+    std::string out;
+    out.reserve(value.size());
+    for (auto ch : value)
+    {
+        auto byte = static_cast<unsigned char>(ch);
+        if (std::isalnum(byte) || ch == '_')
+        {
+            out.push_back(static_cast<char>(std::tolower(byte)));
+        }
+        else
+        {
+            out.push_back('_');
+        }
+    }
+    if (out.empty())
+    {
+        return "idx";
+    }
+    return out;
+}
+
+const IndexSpec* find_index_by_name(
+    const std::vector<IndexSpec>& indexes,
+    const std::string& name
+)
+{
+    for (const auto& index : indexes)
+    {
+        if (index.name == name)
+        {
+            return &index;
+        }
+    }
+    return nullptr;
+}
+
+bool same_index_definition(
+    const IndexSpec& left,
+    const IndexSpec& right
+)
+{
+    return left.name == right.name && left.json_path == right.json_path &&
+           left.unique == right.unique;
+}
+
+std::string create_physical_unique_index_sql(
+    CollectionId collection,
+    const IndexSpec& index
+)
+{
+    auto field_name = top_level_index_field_name(index);
+    return "CREATE UNIQUE INDEX IF NOT EXISTS " + physical_unique_index_name(collection, index) +
+           " ON mt_current (collection_id, ((value_json ->> " + sql_literal(field_name) +
+           "))) "
+           "WHERE deleted = false AND collection_id = " +
+           std::to_string(collection);
 }
 
 } // namespace
@@ -275,6 +362,27 @@ std::string PrivateSchemaSql::select_current_query_candidates(bool has_after_key
     return sql;
 }
 
+std::string PrivateSchemaSql::select_current_query_by_index(
+    std::string_view field_name,
+    bool has_after_key
+)
+{
+    auto sql = std::string(
+        "SELECT document_key, version, deleted, value_hash, value_json::text "
+        "FROM mt_current "
+        "WHERE collection_id = $1::bigint "
+        "AND deleted = false "
+        "AND value_json ->> " +
+        sql_literal(field_name) + " = $2 "
+    );
+    if (has_after_key)
+    {
+        sql += "AND document_key > $3 ";
+    }
+    sql += "ORDER BY document_key";
+    return sql;
+}
+
 std::string PrivateSchemaSql::select_current_unique_index_candidates()
 {
     return "SELECT document_key, value_json::text "
@@ -333,6 +441,14 @@ std::string PrivateSchemaSql::select_collection_spec_by_logical_name()
            "WHERE c.logical_name = $1";
 }
 
+std::string PrivateSchemaSql::select_collection_spec_by_id()
+{
+    return "SELECT c.logical_name, c.schema_version, c.key_field, s.schema_json, s.indexes_json "
+           "FROM mt_collections c "
+           "JOIN mt_schema_snapshots s ON s.collection_id = c.id "
+           "WHERE c.id = $1::bigint";
+}
+
 std::string PrivateSchemaSql::select_collection_descriptor_by_logical_name()
 {
     return "SELECT id, logical_name, schema_version "
@@ -368,6 +484,22 @@ std::string PrivateSchemaSql::update_schema_snapshot()
 std::string PrivateSchemaSql::select_collection_indexes_by_id()
 {
     return "SELECT indexes_json FROM mt_schema_snapshots WHERE collection_id = $1::bigint";
+}
+
+std::string PrivateSchemaSql::select_current_document_with_missing_index_value()
+{
+    return "SELECT document_key "
+           "FROM mt_current "
+           "WHERE collection_id = $1::bigint "
+           "AND deleted = false "
+           "AND value_json ->> $2 IS NULL "
+           "LIMIT 1";
+}
+
+std::string PrivateSchemaSql::count_physical_index_by_name()
+{
+    return "SELECT COUNT(*) FROM pg_indexes "
+           "WHERE schemaname = current_schema() AND indexname = $1";
 }
 
 void bootstrap_schema(
@@ -408,6 +540,29 @@ std::optional<CollectionSpec> load_collection_spec(
     if (result.rows() == 0)
     {
         return std::nullopt;
+    }
+
+    return CollectionSpec{
+        .logical_name = std::string(result.value(0, 0)),
+        .indexes = common::deserialize_indexes(result.value(0, 4)),
+        .schema_version = parse_int(result.value(0, 1)),
+        .key_field = std::string(result.value(0, 2)),
+        .fields = common::deserialize_fields(result.value(0, 3))
+    };
+}
+
+CollectionSpec load_collection_spec(
+    Connection& connection,
+    CollectionId collection
+)
+{
+    auto result = connection.exec_params(
+        PrivateSchemaSql::select_collection_spec_by_id(), {std::to_string(collection)},
+        {PGRES_TUPLES_OK}
+    );
+    if (result.rows() == 0)
+    {
+        throw BackendError("postgres collection not found");
     }
 
     return CollectionSpec{
@@ -466,6 +621,7 @@ CollectionDescriptor insert_collection(
          common::serialize_indexes(spec.indexes)},
         {PGRES_COMMAND_OK}
     );
+    create_physical_unique_indexes(connection, descriptor.id, spec);
     return descriptor;
 }
 
@@ -500,6 +656,87 @@ std::vector<IndexSpec> load_collection_indexes(
         throw BackendError("postgres collection not found");
     }
     return common::deserialize_indexes(result.value(0, 0));
+}
+
+std::string physical_unique_index_name(
+    CollectionId collection,
+    const IndexSpec& index
+)
+{
+    return "mt_current_uix_" + std::to_string(collection) + "_" + safe_identifier_part(index.name);
+}
+
+void validate_postgres_index_update(
+    const CollectionSpec& existing,
+    const CollectionSpec& requested
+)
+{
+    for (const auto& existing_index : existing.indexes)
+    {
+        auto requested_index = find_index_by_name(requested.indexes, existing_index.name);
+        if (!requested_index)
+        {
+            throw BackendError("postgres backend does not support removing indexes");
+        }
+        if (!same_index_definition(existing_index, *requested_index))
+        {
+            throw BackendError("postgres backend does not support changing index definitions");
+        }
+    }
+}
+
+void validate_existing_values_for_unique_index(
+    Connection& connection,
+    CollectionId collection,
+    const IndexSpec& index
+)
+{
+    auto field_name = top_level_index_field_name(index);
+    auto missing = connection.exec_params(
+        PrivateSchemaSql::select_current_document_with_missing_index_value(),
+        {std::to_string(collection), field_name}, {PGRES_TUPLES_OK}
+    );
+    if (missing.rows() != 0)
+    {
+        throw BackendError("postgres backend unique index value must not be null or missing");
+    }
+}
+
+void create_physical_unique_indexes(
+    Connection& connection,
+    CollectionId collection,
+    const CollectionSpec& spec
+)
+{
+    for (const auto& index : spec.indexes)
+    {
+        if (!index.unique)
+        {
+            continue;
+        }
+
+        validate_existing_values_for_unique_index(connection, collection, index);
+        connection.exec_command(create_physical_unique_index_sql(collection, index));
+    }
+}
+
+void create_added_physical_unique_indexes(
+    Connection& connection,
+    CollectionId collection,
+    const CollectionSpec& existing,
+    const CollectionSpec& requested
+)
+{
+    for (const auto& index : requested.indexes)
+    {
+        if (!index.unique || find_index_by_name(existing.indexes, index.name))
+        {
+            continue;
+        }
+
+        validate_existing_values_for_unique_index(connection, collection, index);
+        connection.exec_command(create_physical_unique_index_sql(collection, index));
+    }
 }
 
 } // namespace mt::backends::postgres::detail

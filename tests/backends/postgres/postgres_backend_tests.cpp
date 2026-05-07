@@ -26,6 +26,26 @@ mt::CollectionSpec postgres_user_schema(std::string logical_name)
     };
 }
 
+mt::CollectionSpec postgres_user_schema_without_indexes(std::string logical_name)
+{
+    auto spec = postgres_user_schema(std::move(logical_name));
+    spec.indexes = {};
+    return spec;
+}
+
+int count_physical_index(
+    std::string_view dsn,
+    std::string_view index_name
+)
+{
+    auto connection = mt::backends::postgres::detail::Connection::open(dsn);
+    auto result = connection.exec_params(
+        mt::backends::postgres::detail::PrivateSchemaSql::count_physical_index_by_name(),
+        {std::string(index_name)}, {PGRES_TUPLES_OK}
+    );
+    return std::stoi(std::string(result.value(0, 0)));
+}
+
 mt::Json postgres_user_json(
     std::string id,
     std::string email
@@ -701,6 +721,21 @@ void test_postgres_backend_query_current_metadata_filters_and_limits(std::string
             throw mt::BackendError("postgres current metadata query returned unexpected rows");
         }
     }
+
+    auto indexed_query = mt::QuerySpec::where_json_eq("$.email", mt::Json("two@example.com"));
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        auto rows = session->query_current_metadata(descriptor.id, indexed_query).rows;
+        session->commit_backend_transaction();
+
+        if (rows.size() != 1 || rows[0].key != "user:2" || rows[0].value_hash != test_hash(0xA2))
+        {
+            throw mt::BackendError(
+                "postgres indexed current metadata query returned unexpected rows"
+            );
+        }
+    }
 }
 
 void test_postgres_backend_query_rejects_unsupported_features(std::string_view dsn)
@@ -756,6 +791,13 @@ void test_postgres_backend_enforces_unique_indexes(std::string_view dsn)
 {
     auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
     auto descriptor = backend.ensure_collection(postgres_user_schema("postgres_unique_users"));
+    auto physical_index = mt::backends::postgres::detail::physical_unique_index_name(
+        descriptor.id, mt::IndexSpec::json_path_index("email", "$.email").make_unique()
+    );
+    if (count_physical_index(dsn, physical_index) != 1)
+    {
+        throw mt::BackendError("postgres did not create physical unique index");
+    }
 
     mt::WriteEnvelope first{
         .collection = descriptor.id,
@@ -1028,6 +1070,95 @@ void test_postgres_collection_metadata_round_trips(std::string_view dsn)
     }
 }
 
+void test_postgres_rebuilds_added_unique_index(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    auto initial = postgres_user_schema_without_indexes("postgres_rebuild_unique_users");
+    auto descriptor = backend.ensure_collection(initial);
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        mt::WriteEnvelope first{
+            .collection = descriptor.id,
+            .key = "user:1",
+            .kind = mt::WriteKind::Put,
+            .value = postgres_user_json("user:1", "one@example.com"),
+            .value_hash = test_hash(0xD1)
+        };
+        mt::WriteEnvelope second{
+            .collection = descriptor.id,
+            .key = "user:2",
+            .kind = mt::WriteKind::Put,
+            .value = postgres_user_json("user:2", "two@example.com"),
+            .value_hash = test_hash(0xD2)
+        };
+        session->upsert_current(descriptor.id, first, 1);
+        session->upsert_current(descriptor.id, second, 2);
+        session->commit_backend_transaction();
+    }
+
+    auto requested = postgres_user_schema("postgres_rebuild_unique_users");
+    requested.schema_version = 2;
+    auto updated = backend.ensure_collection(requested);
+    auto physical_index = mt::backends::postgres::detail::physical_unique_index_name(
+        descriptor.id, mt::IndexSpec::json_path_index("email", "$.email").make_unique()
+    );
+
+    if (updated.id != descriptor.id || updated.schema_version != 2 ||
+        count_physical_index(dsn, physical_index) != 1)
+    {
+        throw mt::BackendError("postgres did not rebuild added physical unique index");
+    }
+}
+
+void test_postgres_rejects_added_unique_index_with_existing_duplicates(std::string_view dsn)
+{
+    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
+    auto initial = postgres_user_schema_without_indexes("postgres_rebuild_duplicate_unique_users");
+    auto descriptor = backend.ensure_collection(initial);
+
+    {
+        auto session = backend.open_session();
+        session->begin_backend_transaction();
+        mt::WriteEnvelope first{
+            .collection = descriptor.id,
+            .key = "user:1",
+            .kind = mt::WriteKind::Put,
+            .value = postgres_user_json("user:1", "same@example.com"),
+            .value_hash = test_hash(0xD3)
+        };
+        mt::WriteEnvelope second{
+            .collection = descriptor.id,
+            .key = "user:2",
+            .kind = mt::WriteKind::Put,
+            .value = postgres_user_json("user:2", "same@example.com"),
+            .value_hash = test_hash(0xD4)
+        };
+        session->upsert_current(descriptor.id, first, 1);
+        session->upsert_current(descriptor.id, second, 2);
+        session->commit_backend_transaction();
+    }
+
+    auto requested = postgres_user_schema("postgres_rebuild_duplicate_unique_users");
+    requested.schema_version = 2;
+    auto rejected = false;
+    try
+    {
+        backend.ensure_collection(requested);
+    }
+    catch (const mt::BackendError&)
+    {
+        rejected = true;
+    }
+    if (!rejected)
+    {
+        throw mt::BackendError(
+            "postgres accepted added unique index with duplicate existing values"
+        );
+    }
+}
+
 void test_postgres_rejects_nullable_unique_index_schema(std::string_view dsn)
 {
     auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
@@ -1187,6 +1318,8 @@ int main()
         test_postgres_core_transactions_reject_unique_index_conflict(dsn);
         test_postgres_core_overlapping_orthogonal_transactions_commit(dsn);
         test_postgres_collection_metadata_round_trips(dsn);
+        test_postgres_rebuilds_added_unique_index(dsn);
+        test_postgres_rejects_added_unique_index_with_existing_duplicates(dsn);
         test_postgres_rejects_nullable_unique_index_schema(dsn);
         test_postgres_rejects_nested_index_schema(dsn);
         test_postgres_accepts_defaulted_schema_change(dsn);

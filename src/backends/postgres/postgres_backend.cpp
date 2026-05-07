@@ -103,8 +103,11 @@ CollectionDescriptor PostgresBackend::ensure_collection(const CollectionSpec& sp
             );
         }
 
-        detail::update_collection(connection, spec);
         auto descriptor = detail::load_collection_descriptor(connection, spec.logical_name);
+        detail::validate_postgres_index_update(*stored, spec);
+        detail::create_added_physical_unique_indexes(connection, descriptor.id, *stored, spec);
+        detail::update_collection(connection, spec);
+        descriptor = detail::load_collection_descriptor(connection, spec.logical_name);
         connection.exec_command("COMMIT");
         return descriptor;
     }

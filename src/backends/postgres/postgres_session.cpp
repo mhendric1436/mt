@@ -4,10 +4,12 @@
 #include "mt/hash.hpp"
 #include "mt/json_parser.hpp"
 #include "mt/query.hpp"
+#include "mt/schema.hpp"
 
 #include "postgres_schema.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -54,6 +56,47 @@ std::string write_value_text(const WriteEnvelope& write)
     return write.value.canonical_string();
 }
 
+std::optional<std::string> postgres_index_value_text(
+    const FieldSpec& field,
+    const Json& value
+)
+{
+    switch (field.type)
+    {
+    case FieldType::String:
+        if (!value.is_string())
+        {
+            return std::nullopt;
+        }
+        return value.as_string();
+    case FieldType::Bool:
+        if (!value.is_bool())
+        {
+            return std::nullopt;
+        }
+        return value.as_bool() ? "true" : "false";
+    case FieldType::Int64:
+        if (!value.is_int64())
+        {
+            return std::nullopt;
+        }
+        return std::to_string(value.as_int64());
+    case FieldType::Double:
+        if (!value.is_double())
+        {
+            return std::nullopt;
+        }
+        return value.canonical_string();
+    case FieldType::Json:
+    case FieldType::Optional:
+    case FieldType::Array:
+    case FieldType::Object:
+        return std::nullopt;
+    }
+
+    return std::nullopt;
+}
+
 void validate_supported_query(const QuerySpec& query)
 {
     if (!query.order_by_key)
@@ -81,36 +124,23 @@ void check_unique_constraints(
         return;
     }
 
-    for (const auto& index : detail::load_collection_indexes(connection, collection))
+    auto spec = detail::load_collection_spec(connection, collection);
+    for (const auto& index : spec.indexes)
     {
         if (!index.unique)
         {
             continue;
         }
 
-        auto write_value = json_path_value(write.value, index.json_path);
+        const auto* field = index_field(spec, index);
+        const auto* write_value = indexed_json_value(write.value, index);
         if (!write_value || write_value->is_null())
         {
             throw BackendError("postgres backend unique index value must not be null or missing");
         }
-
-        auto candidates = connection.exec_params(
-            detail::PrivateSchemaSql::select_current_unique_index_candidates(),
-            {std::to_string(collection), write.key}, {PGRES_TUPLES_OK}
-        );
-        for (auto row = 0; row < candidates.rows(); ++row)
+        if (!encode_index_scalar_value(*field, *write_value))
         {
-            if (candidates.is_null(row, 1))
-            {
-                continue;
-            }
-
-            auto current_value =
-                json_path_value(parse_json(candidates.value(row, 1)), index.json_path);
-            if (current_value && *current_value == *write_value)
-            {
-                throw BackendError("postgres backend unique index constraint violation");
-            }
+            throw BackendError("postgres backend unique index value has incompatible type");
         }
     }
 }
@@ -329,16 +359,37 @@ QueryMetadataResult PostgresSession::query_current_metadata(
     require_backend_tx();
     validate_supported_query(query);
 
+    auto spec = detail::load_collection_spec(*connection_, collection);
+    auto indexed = find_indexed_json_equality(spec, query);
     auto params = std::vector<std::string>{std::to_string(collection)};
-    if (query.after_key)
+    std::string sql;
+    if (indexed)
     {
-        params.push_back(*query.after_key);
+        auto value_text = postgres_index_value_text(*indexed->field, indexed->predicate->value);
+        if (value_text)
+        {
+            params.push_back(*std::move(value_text));
+            if (query.after_key)
+            {
+                params.push_back(*query.after_key);
+            }
+            sql = detail::PrivateSchemaSql::select_current_query_by_index(
+                top_level_index_field_name(*indexed->index), query.after_key.has_value()
+            );
+        }
     }
 
-    auto result = connection_->exec_params(
-        detail::PrivateSchemaSql::select_current_query_candidates(query.after_key.has_value()),
-        params, {PGRES_TUPLES_OK}
-    );
+    if (sql.empty())
+    {
+        if (query.after_key)
+        {
+            params.push_back(*query.after_key);
+        }
+        sql =
+            detail::PrivateSchemaSql::select_current_query_candidates(query.after_key.has_value());
+    }
+
+    auto result = connection_->exec_params(sql, params, {PGRES_TUPLES_OK});
 
     QueryMetadataResult envelope;
     for (auto row = 0; row < result.rows(); ++row)

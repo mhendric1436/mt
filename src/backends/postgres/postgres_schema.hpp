@@ -50,6 +50,10 @@ struct PrivateSchemaSql
         bool has_limit
     );
     static std::string select_current_query_candidates(bool has_after_key);
+    static std::string select_current_query_by_index(
+        std::string_view field_name,
+        bool has_after_key
+    );
     static std::string select_current_unique_index_candidates();
     static std::string insert_history();
     static std::string upsert_current();
@@ -58,12 +62,15 @@ struct PrivateSchemaSql
     static std::string count_history_rows();
 
     static std::string select_collection_spec_by_logical_name();
+    static std::string select_collection_spec_by_id();
     static std::string select_collection_descriptor_by_logical_name();
     static std::string insert_collection();
     static std::string insert_schema_snapshot();
     static std::string update_collection();
     static std::string update_schema_snapshot();
     static std::string select_collection_indexes_by_id();
+    static std::string select_current_document_with_missing_index_value();
+    static std::string count_physical_index_by_name();
 };
 
 void bootstrap_schema(
@@ -74,6 +81,11 @@ void bootstrap_schema(
 std::optional<CollectionSpec> load_collection_spec(
     Connection& connection,
     std::string_view logical_name
+);
+
+CollectionSpec load_collection_spec(
+    Connection& connection,
+    CollectionId collection
 );
 
 CollectionDescriptor load_collection_descriptor(
@@ -94,6 +106,29 @@ void update_collection(
 std::vector<IndexSpec> load_collection_indexes(
     Connection& connection,
     CollectionId collection
+);
+
+std::string physical_unique_index_name(
+    CollectionId collection,
+    const IndexSpec& index
+);
+
+void validate_postgres_index_update(
+    const CollectionSpec& existing,
+    const CollectionSpec& requested
+);
+
+void create_physical_unique_indexes(
+    Connection& connection,
+    CollectionId collection,
+    const CollectionSpec& spec
+);
+
+void create_added_physical_unique_indexes(
+    Connection& connection,
+    CollectionId collection,
+    const CollectionSpec& existing,
+    const CollectionSpec& requested
 );
 
 } // namespace mt::backends::postgres::detail
