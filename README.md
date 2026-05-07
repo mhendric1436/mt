@@ -289,6 +289,7 @@ handle retries at a higher level.
 - `src/mt_core.cpp`: header syntax-check translation unit
 - `docs/backend_contract.md`: backend implementation contract
 - `docs/backend_implementation.md`: backend implementation guide
+- `docs/optimistic_concurrency.md`: OCC model, validation phases, and use cases
 - `.github/workflows/ci.yml`: GitHub Actions workflow
 
 ## Backend Model
