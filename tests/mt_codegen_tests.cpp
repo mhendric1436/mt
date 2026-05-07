@@ -200,13 +200,20 @@ void test_generated_user_table_works_with_memory_backend()
 
 void test_generated_composite_key_table_works_with_memory_backend()
 {
-    EXPECT_EQ(std::string(mt_examples::OrderMapping::key_field), std::string("tenant_id:order_id"));
+    EXPECT_EQ(
+        std::string(mt_examples::OrderMapping::key_field),
+        std::string("tenant_id:order_id:revision")
+    );
 
     mt_examples::Order order{
-        .tenant_id = "tenant:a", .order_id = "order:1", .status = "open", .total_cents = 1299
+        .tenant_id = "tenant:a",
+        .order_id = "order:1",
+        .revision = 2,
+        .status = "open",
+        .total_cents = 1299
     };
 
-    EXPECT_EQ(mt_examples::OrderMapping::key(order), std::string("tenant:a:order:1"));
+    EXPECT_EQ(mt_examples::OrderMapping::key(order), std::string("tenant:a:order:1:2"));
 
     auto backend = std::make_shared<mt::backends::memory::MemoryBackend>();
     mt::Database db{backend};
@@ -217,7 +224,7 @@ void test_generated_composite_key_table_works_with_memory_backend()
 
     txs.run([&](mt::Transaction& tx) { orders.put(tx, order); });
 
-    auto loaded = orders.require("tenant:a:order:1");
+    auto loaded = orders.require("tenant:a:order:1:2");
     EXPECT_EQ(loaded, order);
 
     auto indexes = mt_examples::OrderMapping::indexes();

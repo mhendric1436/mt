@@ -294,21 +294,24 @@ class SchemaValidationTests(unittest.TestCase):
     def test_composite_key_parses_and_renders(self):
         schema = copy.deepcopy(VALID_SCHEMA)
         schema["fields"].insert(0, {"name": "tenant_id", "type": "string", "required": True})
-        schema["key"] = {"fields": ["tenant_id", "id"], "separator": "::"}
+        schema["fields"].append({"name": "revision", "type": "int64", "required": True})
+        schema["key"] = {"fields": ["tenant_id", "id", "revision"], "separator": "::"}
 
         validated = mt_codegen.validate_schema(schema)
         rendered = mt_codegen.render(validated)
 
-        self.assertEqual(validated["key"], mt_codegen.CompositeKey(("tenant_id", "id"), "::"))
-        self.assertEqual(validated["key_field"], "tenant_id::id")
-        self.assertIn('static constexpr std::string_view key_field = "tenant_id::id";', rendered)
-        self.assertIn('return row.tenant_id + "::" + row.id;', rendered)
+        self.assertEqual(
+            validated["key"], mt_codegen.CompositeKey(("tenant_id", "id", "revision"), "::")
+        )
+        self.assertEqual(validated["key_field"], "tenant_id::id::revision")
+        self.assertIn('static constexpr std::string_view key_field = "tenant_id::id::revision";', rendered)
+        self.assertIn('return row.tenant_id + "::" + row.id + "::" + std::to_string(row.revision);', rendered)
 
-    def test_composite_key_requires_declared_string_fields(self):
+    def test_composite_key_requires_declared_string_or_int64_fields(self):
         schema = copy.deepcopy(VALID_SCHEMA)
         schema["key"] = {"fields": ["id", "active"]}
 
-        self.assert_schema_error(schema, "key field 'active' must be a string field")
+        self.assert_schema_error(schema, "key field 'active' must be a string or int64 field")
 
     def test_composite_key_requires_at_least_two_fields(self):
         schema = copy.deepcopy(VALID_SCHEMA)

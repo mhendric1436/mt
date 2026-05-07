@@ -532,6 +532,10 @@ def key_field_metadata(key_spec):
     fail(f"unsupported key descriptor: {key_spec!r}")
 
 
+def key_field_is_supported(type_desc):
+    return isinstance(type_desc, ScalarType) and type_desc.name in {"string", "int64"}
+
+
 def validate_schema(schema):
     schema = require_object(schema, "schema")
 
@@ -558,8 +562,8 @@ def validate_schema(schema):
     for key_field in key_field_names(key):
         if key_field not in fields_by_name:
             fail(f"key field {key_field!r} does not exist")
-        if not isinstance(fields_by_name[key_field]["type"], ScalarType) or fields_by_name[key_field]["type"].name != "string":
-            fail(f"key field {key_field!r} must be a string field")
+        if not key_field_is_supported(fields_by_name[key_field]["type"]):
+            fail(f"key field {key_field!r} must be a string or int64 field")
 
     indexes = schema.get("indexes", [])
     if indexes is None:
@@ -630,15 +634,25 @@ def append_object_json_helpers(lines, object_type):
     lines.append("    }")
 
 
-def cpp_key_expr(key_spec):
+def cpp_key_part_expr(field_name, fields_by_name):
+    type_desc = fields_by_name[field_name]["type"]
+    if isinstance(type_desc, ScalarType) and type_desc.name == "string":
+        return f"row.{field_name}"
+    if isinstance(type_desc, ScalarType) and type_desc.name == "int64":
+        return f"std::to_string(row.{field_name})"
+    fail(f"unsupported key field type descriptor: {type_desc!r}")
+
+
+def cpp_key_expr(key_spec, fields):
+    fields_by_name = {field["name"]: field for field in fields}
     if isinstance(key_spec, SingleKey):
-        return f"row.{key_spec.field}"
+        return cpp_key_part_expr(key_spec.field, fields_by_name)
     if isinstance(key_spec, CompositeKey):
         parts = []
         for index, field in enumerate(key_spec.fields):
             if index > 0:
                 parts.append(cpp_string(key_spec.separator))
-            parts.append(f"row.{field}")
+            parts.append(cpp_key_part_expr(field, fields_by_name))
         return " + ".join(parts)
     fail(f"unsupported key descriptor: {key_spec!r}")
 
@@ -682,7 +696,7 @@ def render(schema):
     lines.append("")
     lines.append(f"    static std::string key(const {class_name}& row)")
     lines.append("    {")
-    lines.append(f"        return {cpp_key_expr(schema['key'])};")
+    lines.append(f"        return {cpp_key_expr(schema['key'], schema['fields'])};")
     lines.append("    }")
     lines.append("")
     lines.append("    static std::vector<mt::FieldSpec> fields()")

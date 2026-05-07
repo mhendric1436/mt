@@ -2,11 +2,12 @@
   "namespace": "mt_examples",
   "table_name": "orders",
   "class_name": "Order",
-  "key": {"fields": ["tenant_id", "order_id"], "separator": ":"},
+  "key": {"fields": ["tenant_id", "order_id", "revision"], "separator": ":"},
   "schema_version": 1,
   "fields": [
     {"name": "tenant_id", "type": "string", "required": true},
     {"name": "order_id", "type": "string", "required": true},
+    {"name": "revision", "type": "int64", "required": true},
     {"name": "status", "type": "string", "required": true},
     {"name": "total_cents", "type": "int64", "default": 0}
   ],
