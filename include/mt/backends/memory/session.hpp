@@ -97,6 +97,7 @@ class MemorySession final : public IBackendSession
 
     TxId create_transaction_id() override
     {
+        require_backend_tx();
         std::lock_guard lock(state_->mutex);
         return "memory:" + std::to_string(state_->next_transaction_id++);
     }
@@ -106,8 +107,8 @@ class MemorySession final : public IBackendSession
         Version
     ) override
     {
+        require_backend_tx();
         std::lock_guard lock(state_->mutex);
-        active_tx_id_ = tx_id;
         state_->active_transactions.insert(std::move(tx_id));
     }
 
@@ -553,7 +554,6 @@ class MemorySession final : public IBackendSession
     std::optional<Version> pending_commit_version_;
     bool in_backend_tx_ = false;
     bool owns_clock_lock_ = false;
-    TxId active_tx_id_;
 };
 
 } // namespace mt::backends::memory

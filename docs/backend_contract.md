@@ -170,9 +170,18 @@ Implemented by `IBackendActiveTransactions`.
 snapshot start version. `unregister_active_transaction(tx_id)` is cleanup and should
 tolerate missing IDs.
 
-Active transaction metadata is intended for backend cleanup, retention, or future garbage
-collection policies. Current core conflict detection does not require scanning active
-transactions.
+Both calls happen inside the same backend transaction that commits the data: register is
+called at transaction begin and unregister is called just before
+`commit_backend_transaction()`. This is intentional. The register and unregister
+therefore commit atomically with the write set, and an aborted backend transaction leaves
+no active_transaction record behind. Backends must not rely on `mt_active_transactions`
+being observable to concurrent readers during a transaction's lifetime — it will not be,
+because the row is inserted and deleted in the same atomic unit.
+
+This design is a core tenet: active_transaction metadata is a side-effect of the commit,
+not a durable record of in-flight state. If a future use case requires observing
+in-progress transactions from outside the transaction itself, that is an explicitly
+out-of-scope extension that would require a different coordination mechanism.
 
 ## Capability Reporting
 
