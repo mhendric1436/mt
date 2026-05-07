@@ -130,9 +130,9 @@ void test_memory_backend_accepts_optional_field_schema_change()
 
     EXPECT_EQ(descriptor.schema_version, 2);
     EXPECT_TRUE(snapshot.has_value());
-    EXPECT_EQ(snapshot->fields.size(), std::size_t{9});
-    EXPECT_EQ(snapshot->fields[8].name, std::string("nickname_extra"));
-    EXPECT_EQ(snapshot->fields[8].type, mt::FieldType::Optional);
+    EXPECT_EQ(snapshot->fields.size(), std::size_t{11});
+    EXPECT_EQ(snapshot->fields[10].name, std::string("nickname_extra"));
+    EXPECT_EQ(snapshot->fields[10].type, mt::FieldType::Optional);
 }
 
 void test_memory_backend_accepts_defaulted_field_schema_change()
@@ -151,10 +151,10 @@ void test_memory_backend_accepts_defaulted_field_schema_change()
 
     EXPECT_EQ(descriptor.schema_version, 2);
     EXPECT_TRUE(snapshot.has_value());
-    EXPECT_EQ(snapshot->fields.size(), std::size_t{9});
-    EXPECT_EQ(snapshot->fields[8].name, std::string("extra_login_count"));
-    EXPECT_TRUE(snapshot->fields[8].has_default);
-    EXPECT_EQ(snapshot->fields[8].default_value, mt::Json(std::int64_t{0}));
+    EXPECT_EQ(snapshot->fields.size(), std::size_t{11});
+    EXPECT_EQ(snapshot->fields[10].name, std::string("extra_login_count"));
+    EXPECT_TRUE(snapshot->fields[10].has_default);
+    EXPECT_EQ(snapshot->fields[10].default_value, mt::Json(std::int64_t{0}));
 }
 
 void test_memory_backend_accepts_nested_object_schema_change()
@@ -175,8 +175,8 @@ void test_memory_backend_accepts_nested_object_schema_change()
 
     EXPECT_EQ(descriptor.schema_version, 2);
     EXPECT_TRUE(snapshot.has_value());
-    EXPECT_EQ(snapshot->fields[8].fields.size(), std::size_t{2});
-    EXPECT_EQ(snapshot->fields[8].fields[1].name, std::string("unit"));
+    EXPECT_EQ(snapshot->fields[10].fields.size(), std::size_t{2});
+    EXPECT_EQ(snapshot->fields[10].fields[1].name, std::string("unit"));
 }
 
 void test_memory_backend_rejects_key_field_schema_change()
@@ -226,7 +226,7 @@ void test_memory_backend_rejects_required_added_field_schema_change()
 
     auto snapshot = backend.schema_snapshot("schema_users");
     EXPECT_TRUE(snapshot.has_value());
-    EXPECT_EQ(snapshot->fields.size(), std::size_t{8});
+    EXPECT_EQ(snapshot->fields.size(), std::size_t{10});
     EXPECT_EQ(snapshot->schema_version, 1);
 }
 

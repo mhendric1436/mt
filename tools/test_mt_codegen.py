@@ -37,7 +37,8 @@ class SchemaValidationTests(unittest.TestCase):
         validated = mt_codegen.validate_schema(copy.deepcopy(VALID_SCHEMA))
 
         self.assertEqual(validated["class_name"], "User")
-        self.assertEqual(validated["key"], "id")
+        self.assertEqual(validated["key"], mt_codegen.SingleKey("id"))
+        self.assertEqual(validated["key_field"], "id")
         self.assertEqual(len(validated["fields"]), 3)
 
     def test_valid_schema_parses_field_type_descriptors(self):
@@ -68,6 +69,18 @@ class SchemaValidationTests(unittest.TestCase):
         self.assertIn('mt::FieldSpec::object("address"', rendered)
         self.assertIn('mt::FieldSpec::boolean("active")', rendered)
         self.assertIn(".with_default(mt::Json(true))", rendered)
+
+    def test_json_field_parses_type_descriptor(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["fields"].append({"name": "metadata", "type": "json", "default": {"role": "admin"}})
+
+        validated = mt_codegen.validate_schema(schema)
+        rendered = mt_codegen.render(validated)
+
+        self.assertEqual(validated["fields"][3]["type"], mt_codegen.JsonType())
+        self.assertIn("mt::Json metadata = mt::Json::object", rendered)
+        self.assertIn('mt::FieldSpec::json("metadata")', rendered)
+        self.assertIn('.with_default(mt::Json::object({mt::Json::Member{"role", mt::Json("admin")}}))', rendered)
 
     def test_optional_scalar_field_parses_type_descriptor(self):
         schema = copy.deepcopy(VALID_SCHEMA)
@@ -111,9 +124,33 @@ class SchemaValidationTests(unittest.TestCase):
 
     def test_array_field_rejects_unsupported_value_type(self):
         schema = copy.deepcopy(VALID_SCHEMA)
-        schema["fields"].append({"name": "items", "type": "array", "value_type": "object"})
+        schema["fields"].append({"name": "items", "type": "array", "value_type": "map"})
 
-        self.assert_schema_error(schema, "unsupported type for fields[3].value_type: 'object'")
+        self.assert_schema_error(schema, "unsupported type for fields[3].value_type: 'map'")
+
+    def test_array_object_field_parses_type_descriptor(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["fields"].append(
+            {
+                "name": "items",
+                "type": "array",
+                "value_type": "object",
+                "class_name": "LineItem",
+                "fields": [
+                    {"name": "sku", "type": "string"},
+                    {"name": "quantity", "type": "int64"},
+                ],
+            }
+        )
+
+        validated = mt_codegen.validate_schema(schema)
+        rendered = mt_codegen.render(validated)
+
+        self.assertEqual(validated["fields"][3]["type"].inner.class_name, "LineItem")
+        self.assertIn("std::vector<LineItem> items", rendered)
+        self.assertIn('mt::FieldSpec::array_object("items"', rendered)
+        self.assertIn("static mt::Json to_json_array_LineItem", rendered)
+        self.assertIn("static std::vector<LineItem> from_json_array_LineItem", rendered)
 
     def test_object_field_parses_type_descriptor(self):
         schema = copy.deepcopy(VALID_SCHEMA)
@@ -253,6 +290,31 @@ class SchemaValidationTests(unittest.TestCase):
         schema["key"] = "missing"
 
         self.assert_schema_error(schema, "key field 'missing' does not exist")
+
+    def test_composite_key_parses_and_renders(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["fields"].insert(0, {"name": "tenant_id", "type": "string", "required": True})
+        schema["key"] = {"fields": ["tenant_id", "id"], "separator": "::"}
+
+        validated = mt_codegen.validate_schema(schema)
+        rendered = mt_codegen.render(validated)
+
+        self.assertEqual(validated["key"], mt_codegen.CompositeKey(("tenant_id", "id"), "::"))
+        self.assertEqual(validated["key_field"], "tenant_id::id")
+        self.assertIn('static constexpr std::string_view key_field = "tenant_id::id";', rendered)
+        self.assertIn('return row.tenant_id + "::" + row.id;', rendered)
+
+    def test_composite_key_requires_declared_string_fields(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["key"] = {"fields": ["id", "active"]}
+
+        self.assert_schema_error(schema, "key field 'active' must be a string field")
+
+    def test_composite_key_requires_at_least_two_fields(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["key"] = {"fields": ["id"]}
+
+        self.assert_schema_error(schema, "key.fields must be an array with at least two field names")
 
     def test_schema_version_must_be_positive_integer(self):
         schema = copy.deepcopy(VALID_SCHEMA)

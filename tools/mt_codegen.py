@@ -22,6 +22,11 @@ class ScalarType:
 
 
 @dataclass(frozen=True)
+class JsonType:
+    pass
+
+
+@dataclass(frozen=True)
 class OptionalType:
     inner: ScalarType
 
@@ -35,6 +40,17 @@ class ArrayType:
 class ObjectType:
     class_name: str
     fields: tuple
+
+
+@dataclass(frozen=True)
+class SingleKey:
+    field: str
+
+
+@dataclass(frozen=True)
+class CompositeKey:
+    fields: tuple
+    separator: str
 
 
 def fail(message):
@@ -100,14 +116,30 @@ def parse_scalar_type(type_name, context):
     return ScalarType(type_name)
 
 
+def parse_value_type(type_name, context):
+    if type_name == "json":
+        return JsonType()
+    return parse_scalar_type(type_name, context)
+
+
 def parse_field_type(field, context):
     type_name = require_named_string(field, "type", f"{context}.type")
+    if type_name == "json":
+        return JsonType()
     if type_name == "optional":
         value_type = require_named_string(field, "value_type", f"{context}.value_type")
-        return OptionalType(parse_scalar_type(value_type, f"{context}.value_type"))
+        parsed = parse_value_type(value_type, f"{context}.value_type")
+        if isinstance(parsed, ObjectType):
+            fail(f"unsupported type for {context}.value_type: {value_type!r}")
+        return OptionalType(parsed)
     if type_name == "array":
         value_type = require_named_string(field, "value_type", f"{context}.value_type")
-        return ArrayType(parse_scalar_type(value_type, f"{context}.value_type"))
+        if value_type == "object":
+            class_name = require_named_string(field, "class_name", f"{context}.class_name")
+            validate_identifier(class_name, f"{context}.class_name")
+            fields = parse_fields(field.get("fields"), f"{context}.fields")
+            return ArrayType(ObjectType(class_name, tuple(fields)))
+        return ArrayType(parse_value_type(value_type, f"{context}.value_type"))
     if type_name == "object":
         class_name = require_named_string(field, "class_name", f"{context}.class_name")
         validate_identifier(class_name, f"{context}.class_name")
@@ -143,6 +175,9 @@ def cpp_default_value(type_desc, value, context):
                 fail(f"default for field {context!r} must be numeric")
             return f" = {value}"
 
+    if isinstance(type_desc, JsonType):
+        return f" = {cpp_json_literal(value)}"
+
     fail(f"unsupported field type descriptor for {context!r}")
 
 
@@ -163,7 +198,34 @@ def cpp_field_type(type_desc):
             return "mt::FieldType::Int64"
         if type_desc.name == "double":
             return "mt::FieldType::Double"
+    if isinstance(type_desc, JsonType):
+        return "mt::FieldType::Json"
+    if isinstance(type_desc, ObjectType):
+        return "mt::FieldType::Object"
     fail(f"unsupported field type descriptor: {type_desc!r}")
+
+
+def cpp_json_literal(value):
+    if value is None:
+        return "mt::Json::null()"
+    if isinstance(value, bool):
+        return "mt::Json(true)" if value else "mt::Json(false)"
+    if isinstance(value, int):
+        return f"mt::Json(std::int64_t{{{value}}})"
+    if isinstance(value, float):
+        return f"mt::Json({value})"
+    if isinstance(value, str):
+        return f"mt::Json({cpp_string(value)})"
+    if isinstance(value, list):
+        items = ", ".join(cpp_json_literal(item) for item in value)
+        return f"mt::Json::array({{{items}}})"
+    if isinstance(value, dict):
+        items = ", ".join(
+            f"mt::Json::Member{{{cpp_string(key)}, {cpp_json_literal(item)}}}"
+            for key, item in value.items()
+        )
+        return f"mt::Json::object({{{items}}})"
+    fail("unsupported JSON default value")
 
 
 def cpp_json_value(type_desc, value, context):
@@ -188,6 +250,9 @@ def cpp_json_value(type_desc, value, context):
                 fail(f"default for field {context!r} must be numeric")
             return f"mt::Json({value})"
 
+    if isinstance(type_desc, JsonType):
+        return cpp_json_literal(value)
+
     fail(f"unsupported field type descriptor for {context!r}")
 
 
@@ -206,10 +271,16 @@ def cpp_field_spec(field):
             expr = f"mt::FieldSpec::double_value({name})"
         else:
             fail(f"unsupported field type descriptor: {type_desc!r}")
+    elif isinstance(type_desc, JsonType):
+        expr = f"mt::FieldSpec::json({name})"
     elif isinstance(type_desc, OptionalType):
         expr = f"mt::FieldSpec::optional({name}, {cpp_field_type(type_desc.inner)})"
     elif isinstance(type_desc, ArrayType):
-        expr = f"mt::FieldSpec::array({name}, {cpp_field_type(type_desc.inner)})"
+        if isinstance(type_desc.inner, ObjectType):
+            nested = ", ".join(cpp_field_spec(nested_field) for nested_field in type_desc.inner.fields)
+            expr = f"mt::FieldSpec::array_object({name}, {{{nested}}})"
+        else:
+            expr = f"mt::FieldSpec::array({name}, {cpp_field_type(type_desc.inner)})"
     elif isinstance(type_desc, ObjectType):
         nested = ", ".join(cpp_field_spec(nested_field) for nested_field in type_desc.fields)
         expr = f"mt::FieldSpec::object({name}, {{{nested}}})"
@@ -232,6 +303,8 @@ def cpp_type(type_desc):
             return "std::int64_t"
         if type_desc.name == "double":
             return "double"
+    if isinstance(type_desc, JsonType):
+        return "mt::Json"
     if isinstance(type_desc, OptionalType):
         return f"std::optional<{cpp_type(type_desc.inner)}>"
     if isinstance(type_desc, ArrayType):
@@ -251,16 +324,30 @@ def json_accessor(type_desc):
             return "as_int64()"
         if type_desc.name == "double":
             return "as_double()"
+    if isinstance(type_desc, JsonType):
+        return ""
     fail(f"unsupported field type descriptor: {type_desc!r}")
+
+
+def array_helper_suffix(type_desc):
+    if isinstance(type_desc, ScalarType):
+        return type_desc.name
+    if isinstance(type_desc, JsonType):
+        return "json"
+    if isinstance(type_desc, ObjectType):
+        return type_desc.class_name
+    fail(f"unsupported array inner type descriptor: {type_desc!r}")
 
 
 def cpp_to_json_expr(type_desc, value_expr):
     if isinstance(type_desc, ScalarType):
         return value_expr
+    if isinstance(type_desc, JsonType):
+        return value_expr
     if isinstance(type_desc, OptionalType):
         return f"{value_expr} ? mt::Json(*{value_expr}) : mt::Json::null()"
     if isinstance(type_desc, ArrayType):
-        return f"to_json_array({value_expr})"
+        return f"to_json_array_{array_helper_suffix(type_desc.inner)}({value_expr})"
     if isinstance(type_desc, ObjectType):
         return f"to_json({value_expr})"
     fail(f"unsupported field type descriptor: {type_desc!r}")
@@ -269,11 +356,13 @@ def cpp_to_json_expr(type_desc, value_expr):
 def json_to_cpp_expr(type_desc, json_expr):
     if isinstance(type_desc, ScalarType):
         return f"{json_expr}.{json_accessor(type_desc)}"
+    if isinstance(type_desc, JsonType):
+        return json_expr
     if isinstance(type_desc, OptionalType):
         inner_expr = json_to_cpp_expr(type_desc.inner, json_expr)
         return f"{json_expr}.is_null() ? std::nullopt : std::optional<{cpp_type(type_desc.inner)}>({inner_expr})"
     if isinstance(type_desc, ArrayType):
-        return f"from_json_array_{type_desc.inner.name}({json_expr})"
+        return f"from_json_array_{array_helper_suffix(type_desc.inner)}({json_expr})"
     if isinstance(type_desc, ObjectType):
         return f"from_json_{type_desc.class_name}({json_expr})"
     fail(f"unsupported field type descriptor: {type_desc!r}")
@@ -293,20 +382,39 @@ def needs_optional(schema):
     return fields_need_optional(schema["fields"])
 
 
+def type_key(type_desc):
+    if isinstance(type_desc, ScalarType):
+        return ("scalar", type_desc.name)
+    if isinstance(type_desc, JsonType):
+        return ("json",)
+    if isinstance(type_desc, ObjectType):
+        return ("object", type_desc.class_name)
+    fail(f"unsupported field type descriptor: {type_desc!r}")
+
+
 def array_inner_types_in_fields(fields):
-    return sorted(
-        {
-            field["type"].inner.name
-            for field in fields
-            if isinstance(field["type"], ArrayType)
-        }.union(
-            *[
-                set(array_inner_types_in_fields(field["type"].fields))
-                for field in fields
-                if isinstance(field["type"], ObjectType)
-            ]
-        )
-    )
+    descriptors = []
+    seen = set()
+
+    def add(type_desc):
+        key = type_key(type_desc)
+        if key in seen:
+            return
+        seen.add(key)
+        descriptors.append(type_desc)
+
+    for field in fields:
+        type_desc = field["type"]
+        if isinstance(type_desc, ArrayType):
+            add(type_desc.inner)
+            if isinstance(type_desc.inner, ObjectType):
+                for nested in array_inner_types_in_fields(type_desc.inner.fields):
+                    add(nested)
+        elif isinstance(type_desc, ObjectType):
+            for nested in array_inner_types_in_fields(type_desc.fields):
+                add(nested)
+
+    return descriptors
 
 
 def array_inner_types(schema):
@@ -320,6 +428,9 @@ def object_types_in_fields(fields):
         if isinstance(type_desc, ObjectType):
             objects.extend(object_types_in_fields(type_desc.fields))
             objects.append(type_desc)
+        elif isinstance(type_desc, ArrayType) and isinstance(type_desc.inner, ObjectType):
+            objects.extend(object_types_in_fields(type_desc.inner.fields))
+            objects.append(type_desc.inner)
     return objects
 
 
@@ -377,6 +488,50 @@ def validate_unique_object_class_names(fields):
         seen[type_desc.class_name] = type_desc.fields
 
 
+def parse_key_spec(schema):
+    value = require_present(schema, "key")
+    if isinstance(value, str) and value:
+        return SingleKey(value)
+    if not isinstance(value, dict):
+        fail("key must be a non-empty string or an object")
+
+    fields = value.get("fields")
+    if not isinstance(fields, list) or len(fields) < 2:
+        fail("key.fields must be an array with at least two field names")
+
+    parsed_fields = []
+    seen = set()
+    for index, field in enumerate(fields):
+        if not isinstance(field, str) or not field:
+            fail(f"key.fields[{index}] must be a non-empty string")
+        if field in seen:
+            fail(f"duplicate key field {field!r}")
+        seen.add(field)
+        parsed_fields.append(field)
+
+    separator = value.get("separator", ":")
+    if not isinstance(separator, str) or not separator:
+        fail("key.separator must be a non-empty string")
+
+    return CompositeKey(tuple(parsed_fields), separator)
+
+
+def key_field_names(key_spec):
+    if isinstance(key_spec, SingleKey):
+        return (key_spec.field,)
+    if isinstance(key_spec, CompositeKey):
+        return key_spec.fields
+    fail(f"unsupported key descriptor: {key_spec!r}")
+
+
+def key_field_metadata(key_spec):
+    if isinstance(key_spec, SingleKey):
+        return key_spec.field
+    if isinstance(key_spec, CompositeKey):
+        return key_spec.separator.join(key_spec.fields)
+    fail(f"unsupported key descriptor: {key_spec!r}")
+
+
 def validate_schema(schema):
     schema = require_object(schema, "schema")
 
@@ -388,7 +543,7 @@ def validate_schema(schema):
 
     table_name = require_string(schema, "table_name")
     class_name = require_string(schema, "class_name")
-    key = require_string(schema, "key")
+    key = parse_key_spec(schema)
     validate_identifier(class_name, "class_name")
 
     schema_version = schema.get("schema_version", 1)
@@ -398,9 +553,13 @@ def validate_schema(schema):
     validated_fields = parse_fields(schema.get("fields"), "fields")
     validate_unique_object_class_names(validated_fields)
 
-    seen = {field["name"] for field in validated_fields}
-    if key not in seen:
-        fail(f"key field {key!r} does not exist")
+    fields_by_name = {field["name"]: field for field in validated_fields}
+    seen = set(fields_by_name)
+    for key_field in key_field_names(key):
+        if key_field not in fields_by_name:
+            fail(f"key field {key_field!r} does not exist")
+        if not isinstance(fields_by_name[key_field]["type"], ScalarType) or fields_by_name[key_field]["type"].name != "string":
+            fail(f"key field {key_field!r} must be a string field")
 
     indexes = schema.get("indexes", [])
     if indexes is None:
@@ -428,6 +587,7 @@ def validate_schema(schema):
         "table_name": table_name,
         "class_name": class_name,
         "key": key,
+        "key_field": key_field_metadata(key),
         "schema_version": schema_version,
         "fields": validated_fields,
         "indexes": validated_indexes,
@@ -470,6 +630,19 @@ def append_object_json_helpers(lines, object_type):
     lines.append("    }")
 
 
+def cpp_key_expr(key_spec):
+    if isinstance(key_spec, SingleKey):
+        return f"row.{key_spec.field}"
+    if isinstance(key_spec, CompositeKey):
+        parts = []
+        for index, field in enumerate(key_spec.fields):
+            if index > 0:
+                parts.append(cpp_string(key_spec.separator))
+            parts.append(f"row.{field}")
+        return " + ".join(parts)
+    fail(f"unsupported key descriptor: {key_spec!r}")
+
+
 def render(schema):
     class_name = schema["class_name"]
     mapping_name = f"{class_name}Mapping"
@@ -505,11 +678,11 @@ def render(schema):
     lines.append("{")
     lines.append(f"    static constexpr std::string_view table_name = {cpp_string(schema['table_name'])};")
     lines.append(f"    static constexpr int schema_version = {schema['schema_version']};")
-    lines.append(f"    static constexpr std::string_view key_field = {cpp_string(schema['key'])};")
+    lines.append(f"    static constexpr std::string_view key_field = {cpp_string(schema['key_field'])};")
     lines.append("")
     lines.append(f"    static std::string key(const {class_name}& row)")
     lines.append("    {")
-    lines.append(f"        return row.{schema['key']};")
+    lines.append(f"        return {cpp_key_expr(schema['key'])};")
     lines.append("    }")
     lines.append("")
     lines.append("    static std::vector<mt::FieldSpec> fields()")
@@ -534,24 +707,25 @@ def render(schema):
     lines.append("    }")
 
     if array_inner_types(schema):
-        lines.append("")
-        lines.append("    template <class T>")
-        lines.append("    static mt::Json to_json_array(const std::vector<T>& values)")
-        lines.append("    {")
-        lines.append("        mt::Json::Array array;")
-        lines.append("        array.reserve(values.size());")
-        lines.append("        for (const auto& value : values)")
-        lines.append("        {")
-        lines.append("            array.push_back(mt::Json(value));")
-        lines.append("        }")
-        lines.append("        return mt::Json::array(std::move(array));")
-        lines.append("    }")
-
-        for type_name in array_inner_types(schema):
-            type_desc = ScalarType(type_name)
+        for type_desc in array_inner_types(schema):
+            suffix = array_helper_suffix(type_desc)
             lines.append("")
             lines.append(
-                f"    static std::vector<{cpp_type(type_desc)}> from_json_array_{type_name}(const mt::Json& json)"
+                f"    static mt::Json to_json_array_{suffix}(const std::vector<{cpp_type(type_desc)}>& values)"
+            )
+            lines.append("    {")
+            lines.append("        mt::Json::Array array;")
+            lines.append("        array.reserve(values.size());")
+            lines.append("        for (const auto& value : values)")
+            lines.append("        {")
+            lines.append(f"            array.push_back({cpp_to_json_expr(type_desc, 'value')});")
+            lines.append("        }")
+            lines.append("        return mt::Json::array(std::move(array));")
+            lines.append("    }")
+
+            lines.append("")
+            lines.append(
+                f"    static std::vector<{cpp_type(type_desc)}> from_json_array_{suffix}(const mt::Json& json)"
             )
             lines.append("    {")
             lines.append(f"        std::vector<{cpp_type(type_desc)}> values;")
@@ -559,7 +733,7 @@ def render(schema):
             lines.append("        values.reserve(array.size());")
             lines.append("        for (const auto& item : array)")
             lines.append("        {")
-            lines.append(f"            values.push_back(item.{json_accessor(type_desc)});")
+            lines.append(f"            values.push_back({json_to_cpp_expr(type_desc, 'item')});")
             lines.append("        }")
             lines.append("        return values;")
             lines.append("    }")

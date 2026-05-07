@@ -10,6 +10,17 @@
     {"name": "name", "type": "string", "required": true},
     {"name": "nickname", "type": "optional", "value_type": "string"},
     {"name": "tags", "type": "array", "value_type": "string"},
+    {"name": "metadata", "type": "json", "default": {}},
+    {
+      "name": "logins",
+      "type": "array",
+      "value_type": "object",
+      "class_name": "Login",
+      "fields": [
+        {"name": "provider", "type": "string"},
+        {"name": "successful", "type": "bool"}
+      ]
+    },
     {
       "name": "address",
       "type": "object",

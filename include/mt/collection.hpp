@@ -28,6 +28,7 @@ enum class FieldType
     Bool,
     Int64,
     Double,
+    Json,
     Optional,
     Array,
     Object
@@ -63,6 +64,11 @@ struct FieldSpec
         return FieldSpec{.name = std::move(name), .type = FieldType::Double};
     }
 
+    static FieldSpec json(std::string name)
+    {
+        return FieldSpec{.name = std::move(name), .type = FieldType::Json};
+    }
+
     static FieldSpec optional(
         std::string name,
         FieldType value_type
@@ -80,6 +86,19 @@ struct FieldSpec
     {
         return FieldSpec{
             .name = std::move(name), .type = FieldType::Array, .value_type = value_type
+        };
+    }
+
+    static FieldSpec array_object(
+        std::string name,
+        std::vector<FieldSpec> fields
+    )
+    {
+        return FieldSpec{
+            .name = std::move(name),
+            .type = FieldType::Array,
+            .value_type = FieldType::Object,
+            .fields = std::move(fields)
         };
     }
 

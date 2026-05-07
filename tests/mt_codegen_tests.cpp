@@ -21,6 +21,8 @@ void test_generated_user_mapping_round_trips()
         .name = "Alice",
         .nickname = std::string("ally"),
         .tags = {"admin", "tester"},
+        .metadata = mt::Json::object({{"role", "operator"}}),
+        .logins = {mt_examples::Login{.provider = "password", .successful = true}},
         .address =
             mt_examples::Address{
                 .city = "Denver",
@@ -41,6 +43,10 @@ void test_generated_user_mapping_round_trips()
     EXPECT_EQ(decoded.tags.size(), std::size_t{2});
     EXPECT_EQ(decoded.tags[0], std::string("admin"));
     EXPECT_EQ(decoded.tags[1], std::string("tester"));
+    EXPECT_EQ(decoded.metadata["role"].as_string(), std::string("operator"));
+    EXPECT_EQ(decoded.logins.size(), std::size_t{1});
+    EXPECT_EQ(decoded.logins[0].provider, std::string("password"));
+    EXPECT_TRUE(decoded.logins[0].successful);
     EXPECT_EQ(decoded.address.city, std::string("Denver"));
     EXPECT_EQ(decoded.address.postal_code, std::string("80202"));
     EXPECT_TRUE(decoded.address.unit.has_value());
@@ -57,6 +63,7 @@ void test_generated_user_mapping_round_trips_null_optional()
         .email = "bob@example.com",
         .name = "Bob",
         .tags = {},
+        .logins = {},
         .address = mt_examples::Address{.city = "Boulder", .postal_code = "80301", .labels = {}},
         .active = true,
         .login_count = 1
@@ -66,6 +73,10 @@ void test_generated_user_mapping_round_trips_null_optional()
     EXPECT_TRUE(json["nickname"].is_null());
     EXPECT_TRUE(json["tags"].is_array());
     EXPECT_TRUE(json["tags"].as_array().empty());
+    EXPECT_TRUE(json["metadata"].is_object());
+    EXPECT_TRUE(json["metadata"].as_object().empty());
+    EXPECT_TRUE(json["logins"].is_array());
+    EXPECT_TRUE(json["logins"].as_array().empty());
 
     auto decoded = mt_examples::UserMapping::from_json(json);
     EXPECT_FALSE(decoded.nickname.has_value());
@@ -79,7 +90,7 @@ void test_generated_user_mapping_exposes_schema_metadata()
     EXPECT_EQ(std::string(mt_examples::UserMapping::key_field), std::string("id"));
 
     auto fields = mt_examples::UserMapping::fields();
-    EXPECT_EQ(fields.size(), std::size_t{8});
+    EXPECT_EQ(fields.size(), std::size_t{10});
 
     EXPECT_EQ(fields[0].name, std::string("id"));
     EXPECT_EQ(fields[0].type, mt::FieldType::String);
@@ -94,25 +105,36 @@ void test_generated_user_mapping_exposes_schema_metadata()
     EXPECT_EQ(fields[4].type, mt::FieldType::Array);
     EXPECT_EQ(fields[4].value_type, mt::FieldType::String);
 
-    EXPECT_EQ(fields[5].name, std::string("address"));
-    EXPECT_EQ(fields[5].type, mt::FieldType::Object);
-    EXPECT_EQ(fields[5].fields.size(), std::size_t{4});
-    EXPECT_EQ(fields[5].fields[2].name, std::string("unit"));
-    EXPECT_EQ(fields[5].fields[2].type, mt::FieldType::Optional);
-    EXPECT_EQ(fields[5].fields[3].name, std::string("labels"));
-    EXPECT_EQ(fields[5].fields[3].type, mt::FieldType::Array);
+    EXPECT_EQ(fields[5].name, std::string("metadata"));
+    EXPECT_EQ(fields[5].type, mt::FieldType::Json);
+    EXPECT_TRUE(fields[5].has_default);
+    EXPECT_EQ(fields[5].default_value, mt::Json::object({}));
 
-    EXPECT_EQ(fields[6].name, std::string("active"));
-    EXPECT_EQ(fields[6].type, mt::FieldType::Bool);
-    EXPECT_FALSE(fields[6].required);
-    EXPECT_TRUE(fields[6].has_default);
-    EXPECT_EQ(fields[6].default_value, mt::Json(true));
+    EXPECT_EQ(fields[6].name, std::string("logins"));
+    EXPECT_EQ(fields[6].type, mt::FieldType::Array);
+    EXPECT_EQ(fields[6].value_type, mt::FieldType::Object);
+    EXPECT_EQ(fields[6].fields.size(), std::size_t{2});
+    EXPECT_EQ(fields[6].fields[0].name, std::string("provider"));
 
-    EXPECT_EQ(fields[7].name, std::string("login_count"));
-    EXPECT_EQ(fields[7].type, mt::FieldType::Int64);
-    EXPECT_FALSE(fields[7].required);
-    EXPECT_TRUE(fields[7].has_default);
-    EXPECT_EQ(fields[7].default_value, mt::Json(std::int64_t{0}));
+    EXPECT_EQ(fields[7].name, std::string("address"));
+    EXPECT_EQ(fields[7].type, mt::FieldType::Object);
+    EXPECT_EQ(fields[7].fields.size(), std::size_t{4});
+    EXPECT_EQ(fields[7].fields[2].name, std::string("unit"));
+    EXPECT_EQ(fields[7].fields[2].type, mt::FieldType::Optional);
+    EXPECT_EQ(fields[7].fields[3].name, std::string("labels"));
+    EXPECT_EQ(fields[7].fields[3].type, mt::FieldType::Array);
+
+    EXPECT_EQ(fields[8].name, std::string("active"));
+    EXPECT_EQ(fields[8].type, mt::FieldType::Bool);
+    EXPECT_FALSE(fields[8].required);
+    EXPECT_TRUE(fields[8].has_default);
+    EXPECT_EQ(fields[8].default_value, mt::Json(true));
+
+    EXPECT_EQ(fields[9].name, std::string("login_count"));
+    EXPECT_EQ(fields[9].type, mt::FieldType::Int64);
+    EXPECT_FALSE(fields[9].required);
+    EXPECT_TRUE(fields[9].has_default);
+    EXPECT_EQ(fields[9].default_value, mt::Json(std::int64_t{0}));
 }
 
 void test_generated_user_table_works_with_memory_backend()
@@ -134,6 +156,8 @@ void test_generated_user_table_works_with_memory_backend()
                         .name = "Alice",
                         .nickname = std::string("ally"),
                         .tags = {"admin", "tester"},
+                        .metadata = mt::Json::object({{"role", "operator"}}),
+                        .logins = {mt_examples::Login{.provider = "password", .successful = true}},
                         .address =
                             mt_examples::Address{
                                 .city = "Denver",
@@ -155,6 +179,10 @@ void test_generated_user_table_works_with_memory_backend()
     EXPECT_EQ(loaded.tags.size(), std::size_t{2});
     EXPECT_EQ(loaded.tags[0], std::string("admin"));
     EXPECT_EQ(loaded.tags[1], std::string("tester"));
+    EXPECT_EQ(loaded.metadata["role"].as_string(), std::string("operator"));
+    EXPECT_EQ(loaded.logins.size(), std::size_t{1});
+    EXPECT_EQ(loaded.logins[0].provider, std::string("password"));
+    EXPECT_TRUE(loaded.logins[0].successful);
     EXPECT_EQ(loaded.address.city, std::string("Denver"));
     EXPECT_EQ(loaded.address.postal_code, std::string("80202"));
     EXPECT_TRUE(loaded.address.unit.has_value());

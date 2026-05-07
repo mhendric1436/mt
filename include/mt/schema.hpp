@@ -62,6 +62,8 @@ inline std::string field_type_name(FieldType type)
         return "int64";
     case FieldType::Double:
         return "double";
+    case FieldType::Json:
+        return "json";
     case FieldType::Optional:
         return "optional";
     case FieldType::Array:
@@ -205,7 +207,8 @@ inline void diff_fields(
             );
         }
 
-        if (stored.type == FieldType::Object)
+        if (stored.type == FieldType::Object ||
+            (stored.type == FieldType::Array && stored.value_type == FieldType::Object))
         {
             diff_fields(diff, stored.fields, requested.fields, path);
         }

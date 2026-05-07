@@ -269,6 +269,25 @@ void test_schema_diff_reports_nested_object_changes()
     EXPECT_EQ(diff.compatible_changes[0].path, std::string("$.address.unit"));
 }
 
+void test_schema_diff_reports_array_object_changes()
+{
+    auto stored = user_schema_spec();
+    stored.fields.push_back(mt::FieldSpec::array_object("items", {mt::FieldSpec::string("sku")}));
+    auto requested = user_schema_spec();
+    requested.fields.push_back(
+        mt::FieldSpec::array_object(
+            "items",
+            {mt::FieldSpec::string("sku"), mt::FieldSpec::string("note").mark_required(false)}
+        )
+    );
+
+    auto diff = mt::diff_schemas(stored, requested);
+
+    EXPECT_TRUE(diff.is_compatible());
+    EXPECT_EQ(diff.compatible_changes[0].kind, mt::SchemaChangeKind::AddField);
+    EXPECT_EQ(diff.compatible_changes[0].path, std::string("$.items.note"));
+}
+
 void test_backend_contract_transaction_ids_are_non_empty_and_unique()
 {
     Harness h;
@@ -1157,6 +1176,7 @@ int main()
     test_schema_diff_rejects_field_type_change();
     test_schema_diff_rejects_array_value_type_change();
     test_schema_diff_reports_nested_object_changes();
+    test_schema_diff_reports_array_object_changes();
     test_backend_contract_transaction_ids_are_non_empty_and_unique();
     test_backend_contract_commit_versions_strictly_increase();
     test_backend_contract_clock_increment_requires_lock_owner();
