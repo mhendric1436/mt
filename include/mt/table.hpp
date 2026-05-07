@@ -71,11 +71,6 @@ inline void require_schema_capabilities(
     const CollectionSpec& spec
 )
 {
-    if (!spec.migrations.empty() && !capabilities.schema.migrations)
-    {
-        throw BackendError("backend does not support collection migrations");
-    }
-
     if (!spec.indexes.empty() && !capabilities.schema.json_indexes)
     {
         throw BackendError("backend does not support JSON indexes");
@@ -105,18 +100,6 @@ template <class Mapping> std::vector<IndexSpec> mapping_indexes_or_empty()
     if constexpr (requires { Mapping::indexes(); })
     {
         return Mapping::indexes();
-    }
-    else
-    {
-        return {};
-    }
-}
-
-template <class Mapping> std::vector<Migration> mapping_migrations_or_empty()
-{
-    if constexpr (requires { Mapping::migrations(); })
-    {
-        return Mapping::migrations();
     }
     else
     {
@@ -394,8 +377,7 @@ TableProvider::table()
         .indexes = mapping_indexes_or_empty<Mapping>(),
         .schema_version = mapping_schema_version_or_default<Mapping>(),
         .key_field = mapping_key_field_or_empty<Mapping>(),
-        .fields = mapping_fields_or_empty<Mapping>(),
-        .migrations = mapping_migrations_or_empty<Mapping>()
+        .fields = mapping_fields_or_empty<Mapping>()
     };
 
     require_schema_capabilities(db_->backend().capabilities(), spec);

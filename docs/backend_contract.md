@@ -158,10 +158,9 @@ For durable backends, the compare-and-update must be protected by the backend
 transaction, row lock, advisory lock, or equivalent serialization mechanism so concurrent
 schema checks cannot accept conflicting updates.
 
-The memory backend is intentionally not required to support migrations. Its schema
-snapshots and rows do not survive process restarts, so a new process recreates tables
-from the latest generated mappings in the binary instead of migrating old in-memory
-state.
+The memory backend stores snapshots in process-local state only. Its schema snapshots and
+rows do not survive process restarts, so a new process recreates tables from the latest
+generated mappings in the binary.
 
 ## Active Transactions
 

@@ -35,8 +35,6 @@ Known limitations:
   is acceptable
 - memory backend query filtering supports key-prefix and JSON equality predicates only
 - JSON contains predicates and non-key ordering are explicitly rejected by the memory backend
-- migrations are modeled but intentionally unsupported by the memory backend because
-  memory state does not persist across process restarts
 
 ## Requirements
 
@@ -261,7 +259,7 @@ handle retries at a higher level.
 - `include/mt/hash.hpp`: hash value type
 - `include/mt/errors.hpp`: exception types
 - `include/mt/query.hpp`: query, list, and index model
-- `include/mt/collection.hpp`: collection descriptors, field specs, index specs, and migration specs
+- `include/mt/collection.hpp`: collection descriptors, field specs, and index specs
 - `include/mt/schema.hpp`: pure schema comparison helpers (diff, index validation, scalar encoding)
 - `include/mt/metadata_cache.hpp`: in-process collection descriptor cache
 - `include/mt/types.hpp`: document envelopes and write envelopes
@@ -310,9 +308,9 @@ transaction IDs.
 
 Backends also report `BackendCapabilities`, which groups `QueryCapabilities` (key-prefix,
 JSON equals, JSON contains, ordering) and `SchemaCapabilities` (json_indexes,
-unique_indexes, migrations). The typed table API uses those capabilities to reject
-unsupported query, ordering, index, and migration features before invoking a backend
-session. Backend implementations should still validate defensively.
+unique_indexes). The typed table API uses those capabilities to reject unsupported query,
+ordering, and index features before invoking a backend session. Backend implementations
+should still validate defensively.
 
 Backend authors should read `docs/backend_contract.md` before implementing
 `IDatabaseBackend`. They should also follow `docs/backend_implementation.md` for
@@ -378,13 +376,11 @@ Rejected changes currently include:
 - adding a required field without a default
 
 The memory backend stores accepted schema snapshots in process-local state and enforces
-the same compatibility rules during a process lifetime. It intentionally does not
-support migrations: after a process restart there is no persisted memory schema or data
-to migrate, and tables are recreated from the latest row/mapping code in the new binary.
-SQLite and PostgreSQL store snapshots in private backend metadata tables and apply the
-compare/update atomically. Explicit user-defined `Migration` transforms are modeled in
-the API but are not implemented by the current backends; compatible schema evolution is
-driven by comparing generated schema metadata. See `docs/backend_contract.md` and
+the same compatibility rules during a process lifetime. After a process restart there is
+no persisted memory schema or data; tables are recreated from the latest row/mapping code
+in the new binary. SQLite and PostgreSQL store snapshots in private backend metadata
+tables and apply the compare/update atomically. Compatible schema evolution is driven
+entirely by comparing generated schema metadata. See `docs/backend_contract.md` and
 `docs/backend_implementation.md` for backend requirements.
 
 ## Documentation Diagrams

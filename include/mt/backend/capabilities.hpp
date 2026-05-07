@@ -22,7 +22,6 @@ struct SchemaCapabilities
 {
     bool json_indexes = false;
     bool unique_indexes = false;
-    bool migrations = false;
 };
 
 struct BackendCapabilities

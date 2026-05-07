@@ -121,11 +121,6 @@ inline CollectionDescriptor ensure_memory_collection(
 
     validate_index_fields(spec);
 
-    if (!spec.migrations.empty())
-    {
-        throw BackendError("memory backend does not support collection migrations");
-    }
-
     auto existing = state.descriptors_by_name.find(spec.logical_name);
     if (existing != state.descriptors_by_name.end())
     {

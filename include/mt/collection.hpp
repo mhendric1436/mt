@@ -4,7 +4,6 @@
 #include "mt/query.hpp"
 
 #include <cstdint>
-#include <functional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -12,7 +11,7 @@
 // -----------------------------------------------------------------------------
 // mt/collection.hpp
 //
-// Collection descriptors and migration specs.
+// Collection descriptors.
 // -----------------------------------------------------------------------------
 
 namespace mt
@@ -128,13 +127,6 @@ struct FieldSpec
     }
 };
 
-struct Migration
-{
-    int from_version = 0;
-    int to_version = 0;
-    std::function<void(Json&)> transform;
-};
-
 struct CollectionSpec
 {
     std::string logical_name;
@@ -142,7 +134,6 @@ struct CollectionSpec
     int schema_version = 1;
     std::string key_field;
     std::vector<FieldSpec> fields;
-    std::vector<Migration> migrations;
 };
 
 struct CollectionDescriptor

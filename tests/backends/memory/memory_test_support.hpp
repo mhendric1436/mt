@@ -18,16 +18,6 @@ namespace memory_test_support
 using User = BackendTestUser;
 using UserMapping = BackendTestUserMapping;
 
-struct MigratingUserMapping : UserMapping
-{
-    static constexpr std::string_view table_name = "migrating_users";
-
-    static std::vector<mt::Migration> migrations()
-    {
-        return {mt::Migration{.from_version = 1, .to_version = 2, .transform = [](mt::Json&) {}}};
-    }
-};
-
 struct Harness
 {
     std::shared_ptr<mt::backends::memory::MemoryBackend> backend =

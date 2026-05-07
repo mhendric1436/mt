@@ -74,11 +74,6 @@ CollectionDescriptor PostgresBackend::ensure_collection(const CollectionSpec& sp
 {
     validate_index_fields(spec);
 
-    if (!spec.migrations.empty())
-    {
-        throw BackendError("postgres backend does not support explicit collection migrations");
-    }
-
     bootstrap(BootstrapSpec{});
 
     auto connection = detail::Connection::open(state_->dsn);

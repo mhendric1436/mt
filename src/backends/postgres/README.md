@@ -25,8 +25,6 @@ Schema behavior:
 - Compatible schema changes are accepted by comparing stored private schema snapshots with
   requested JSON metadata and updating the snapshot inside the backend transaction.
 - Incompatible schema changes are rejected before descriptor or snapshot metadata changes.
-- Explicit user-defined `Migration` transforms are not supported by this backend yet and
-  are rejected rather than ignored.
 
 Optional backend implementation and tests should use `libpq` through `pkg-config`.
 `make postgres-check` skips when `MT_POSTGRES_TEST_DSN` is unset. When the variable is

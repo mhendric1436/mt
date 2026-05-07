@@ -1,7 +1,6 @@
 #include "memory_test_support.hpp"
 
 using memory_test_support::Harness;
-using memory_test_support::MigratingUserMapping;
 using memory_test_support::User;
 using memory_test_support::user_schema_spec;
 
@@ -18,7 +17,6 @@ void test_memory_backend_reports_capabilities()
 
     EXPECT_TRUE(capabilities.schema.json_indexes);
     EXPECT_TRUE(capabilities.schema.unique_indexes);
-    EXPECT_FALSE(capabilities.schema.migrations);
 }
 
 void test_memory_backend_stores_schema_snapshot_on_create()
@@ -250,11 +248,3 @@ void test_memory_backend_rejects_nested_index_schema()
     EXPECT_THROW_AS(backend.ensure_collection(spec), mt::BackendError);
 }
 
-void test_memory_backend_rejects_migrations()
-{
-    auto backend = std::make_shared<mt::backends::memory::MemoryBackend>();
-    mt::Database db{backend};
-    mt::TableProvider tables{db};
-
-    EXPECT_THROW_AS((tables.table<User, MigratingUserMapping>()), mt::BackendError);
-}

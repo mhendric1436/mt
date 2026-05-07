@@ -84,7 +84,7 @@ void require_postgres_backend_capabilities_match_implemented_features(
     if (!capabilities.query.key_prefix || !capabilities.query.json_equals ||
         capabilities.query.json_contains || !capabilities.query.order_by_key ||
         capabilities.query.custom_ordering || !capabilities.schema.json_indexes ||
-        !capabilities.schema.unique_indexes || capabilities.schema.migrations)
+        !capabilities.schema.unique_indexes)
     {
         throw mt::BackendError("postgres backend capabilities do not match implemented features");
     }
@@ -1260,26 +1260,6 @@ void test_postgres_rejects_incompatible_schema_change(std::string_view dsn)
     throw mt::BackendError("postgres accepted incompatible schema change");
 }
 
-void test_postgres_rejects_explicit_migration_specs(std::string_view dsn)
-{
-    auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
-    auto spec = postgres_user_schema("postgres_explicit_migration_users");
-    spec.migrations.push_back(
-        mt::Migration{.from_version = 1, .to_version = 2, .transform = [](mt::Json&) {}}
-    );
-
-    try
-    {
-        backend.ensure_collection(spec);
-    }
-    catch (const mt::BackendError&)
-    {
-        return;
-    }
-
-    throw mt::BackendError("postgres accepted explicit migration spec");
-}
-
 } // namespace
 
 int main()
@@ -1324,7 +1304,6 @@ int main()
         test_postgres_rejects_nested_index_schema(dsn);
         test_postgres_accepts_defaulted_schema_change(dsn);
         test_postgres_rejects_incompatible_schema_change(dsn);
-        test_postgres_rejects_explicit_migration_specs(dsn);
     }
     catch (const mt::Error& error)
     {

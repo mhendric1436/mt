@@ -13,7 +13,6 @@ void test_sqlite_backend_reports_capabilities()
 
     EXPECT_TRUE(capabilities.schema.json_indexes);
     EXPECT_TRUE(capabilities.schema.unique_indexes);
-    EXPECT_FALSE(capabilities.schema.migrations);
 }
 
 void test_sqlite_backend_rejects_unimplemented_operations()

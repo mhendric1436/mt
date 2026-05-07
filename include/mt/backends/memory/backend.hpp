@@ -38,9 +38,7 @@ class MemoryBackend final : public IDatabaseBackend
                     .order_by_key = true,
                     .custom_ordering = false
                 },
-            .schema = SchemaCapabilities{
-                .json_indexes = true, .unique_indexes = true, .migrations = false
-            }
+            .schema = SchemaCapabilities{.json_indexes = true, .unique_indexes = true}
         };
     }
 
