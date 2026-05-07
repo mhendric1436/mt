@@ -2,6 +2,7 @@
 
 #include "mt/errors.hpp"
 #include "mt/json.hpp"
+#include "mt/json_parser.hpp"
 
 #include <cstdint>
 #include <iomanip>
@@ -27,6 +28,7 @@ FieldType field_type_from_int(int value)
     case FieldType::Bool:
     case FieldType::Int64:
     case FieldType::Double:
+    case FieldType::Json:
     case FieldType::Optional:
     case FieldType::Array:
     case FieldType::Object:
@@ -61,7 +63,7 @@ std::string default_payload(const Json& value)
         return value.as_string();
     }
 
-    throw BackendError("schema snapshots support scalar default values only");
+    return value.canonical_string();
 }
 
 char default_kind(const Json& value)
@@ -86,8 +88,12 @@ char default_kind(const Json& value)
     {
         return 's';
     }
+    if (value.is_array() || value.is_object())
+    {
+        return 'j';
+    }
 
-    throw BackendError("schema snapshots support scalar default values only");
+    throw BackendError("unsupported schema default value");
 }
 
 Json default_json(
@@ -107,6 +113,8 @@ Json default_json(
         return Json(std::stod(payload));
     case 's':
         return Json(payload);
+    case 'j':
+        return parse_json(payload);
     }
 
     throw BackendError("invalid stored default value kind");
