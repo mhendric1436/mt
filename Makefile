@@ -99,7 +99,7 @@ GENERATED_EXAMPLE_HEADERS := $(GENERATED_EXAMPLE_HEADER) $(GENERATED_COMPOSITE_K
 FORMAT_FILES := $(CORE_HEADERS) $(HEADER_CHECK_SRC) $(TEST_SRC) $(CODEGEN_TEST_SRC) $(BACKEND_TEST_HEADERS) $(MEMORY_TEST_SRC) $(MEMORY_TEST_HEADERS) $(COMMON_BACKEND_SRC) $(COMMON_BACKEND_HEADERS) $(SQLITE_BACKEND_SRC) $(SQLITE_BACKEND_HEADERS) $(SQLITE_TEST_SRC) $(SQLITE_TEST_HEADERS) $(POSTGRES_BACKEND_SRC) $(POSTGRES_BACKEND_HEADERS) $(POSTGRES_TEST_SRC) $(POSTGRES_TEST_HEADERS)
 PUML_FILES := $(wildcard docs/*.puml)
 
-.PHONY: all build test check memory-build memory-test memory-check sqlite-build sqlite-test sqlite-check postgres-build postgres-test postgres-check postgres-create-test-db postgres-configure-bash-profile codegen-examples codegen-validation header-check format docs-png clean-docs clean rebuild print-config
+.PHONY: all build test check memory-build memory-test memory-check sqlite-build sqlite-test sqlite-check postgres-build postgres-test postgres-check postgres-create-test-db postgres-configure-bash-profile codegen-examples codegen-validation header-check format docs-png clean-docs clean rebuild print-config help
 
 all: test
 
@@ -252,3 +252,31 @@ print-config:
 	@echo "LIBPQ_PKG_CONFIG_PATH = $(LIBPQ_PKG_CONFIG_PATH)"
 	@echo "BASH_PROFILE = $(BASH_PROFILE)"
 	@echo "MT_POSTGRES_TEST_DSN = $(MT_POSTGRES_TEST_DSN)"
+
+help:
+	@echo "Targets:"
+	@echo "  make                            Build and run core, codegen, and memory tests"
+	@echo "  make build                      Build core, codegen, and memory test binaries"
+	@echo "  make test                       Build and run core, codegen, and memory tests"
+	@echo "  make check                      Run codegen validation, header check, and tests"
+	@echo "  make memory-build               Build memory backend test binary"
+	@echo "  make memory-test                Build and run memory backend tests"
+	@echo "  make memory-check               Alias for memory-test"
+	@echo "  make sqlite-build               Build SQLite backend test binary"
+	@echo "  make sqlite-test                Build and run SQLite backend tests"
+	@echo "  make sqlite-check               Alias for sqlite-test"
+	@echo "  make postgres-build             Build PostgreSQL backend test binary"
+	@echo "  make postgres-test              Build and run PostgreSQL backend tests"
+	@echo "  make postgres-check             Configure DB if needed, then run PostgreSQL tests"
+	@echo "  make postgres-create-test-db    Create configured PostgreSQL test database"
+	@echo "  make postgres-configure-bash-profile Add local PostgreSQL exports if missing"
+	@echo "  make codegen-examples           Generate example schema headers"
+	@echo "  make codegen-validation         Run mt_codegen validation tests"
+	@echo "  make header-check               Syntax-check public headers"
+	@echo "  make format                     Format source files with clang-format"
+	@echo "  make docs-png                   Generate PNG diagrams from docs/*.puml"
+	@echo "  make clean-docs                 Remove generated docs/*.png diagrams"
+	@echo "  make clean                      Remove build artifacts"
+	@echo "  make rebuild                    Clean and rebuild test binaries"
+	@echo "  make print-config               Print resolved Makefile configuration"
+	@echo "  make help                       Show this help"
