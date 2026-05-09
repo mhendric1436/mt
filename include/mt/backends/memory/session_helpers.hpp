@@ -36,6 +36,19 @@ inline const MemoryVersion* best_visible_version(
     return best;
 }
 
+inline const MemoryVersion* latest_version(const std::vector<MemoryVersion>& versions)
+{
+    const MemoryVersion* latest = nullptr;
+    for (const auto& candidate : versions)
+    {
+        if (!latest || candidate.version > latest->version)
+        {
+            latest = &candidate;
+        }
+    }
+    return latest;
+}
+
 inline void validate_supported_query(const QuerySpec& query)
 {
     if (!query.order_by_key)
@@ -84,14 +97,19 @@ inline void check_unique_constraints(
             throw BackendError("memory backend unique index value must not be null or missing");
         }
 
-        for (const auto& [key, current] : collection.current)
+        for (const auto& [key, versions] : collection.rows)
         {
-            if (key == write.key || current.deleted)
+            const auto* current = latest_version(versions);
+            if (!current)
+            {
+                continue;
+            }
+            if (key == write.key || current->deleted)
             {
                 continue;
             }
 
-            auto current_value = mt::json_path_value(current.value, index.json_path);
+            auto current_value = mt::json_path_value(current->value, index.json_path);
             if (current_value && *current_value == *write_value)
             {
                 throw BackendError("memory backend unique index constraint violation");

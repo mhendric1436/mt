@@ -33,8 +33,7 @@ struct MemoryCollection
     CollectionDescriptor descriptor;
     CollectionSpec schema;
     std::vector<IndexSpec> indexes;
-    std::map<std::string, MemoryVersion> current;
-    std::map<std::string, std::vector<MemoryVersion>> history;
+    std::map<std::string, std::vector<MemoryVersion>> rows;
 };
 
 struct MemoryState

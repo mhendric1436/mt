@@ -127,8 +127,8 @@ class MemorySession final : public IBackendSession
         std::lock_guard lock(state_->mutex);
         const auto& c = collection_ref(collection);
 
-        auto it = c.history.find(std::string(key));
-        if (it == c.history.end())
+        auto it = c.rows.find(std::string(key));
+        if (it == c.rows.end())
         {
             return std::nullopt;
         }
@@ -157,8 +157,13 @@ class MemorySession final : public IBackendSession
         std::lock_guard lock(state_->mutex);
         const auto& c = collection_ref(collection);
 
-        auto it = c.current.find(std::string(key));
-        if (it == c.current.end())
+        auto it = c.rows.find(std::string(key));
+        if (it == c.rows.end())
+        {
+            return std::nullopt;
+        }
+        const auto* current = latest_version(it->second);
+        if (!current)
         {
             return std::nullopt;
         }
@@ -166,9 +171,9 @@ class MemorySession final : public IBackendSession
         return DocumentMetadata{
             .collection = collection,
             .key = it->first,
-            .version = it->second.version,
-            .deleted = it->second.deleted,
-            .value_hash = it->second.hash
+            .version = current->version,
+            .deleted = current->deleted,
+            .value_hash = current->hash
         };
     }
 
@@ -183,7 +188,7 @@ class MemorySession final : public IBackendSession
         const auto& c = collection_ref(collection);
 
         QueryResultEnvelope result;
-        for (const auto& [key, versions] : c.history)
+        for (const auto& [key, versions] : c.rows)
         {
             if (query.after_key && key <= *query.after_key)
             {
@@ -229,17 +234,22 @@ class MemorySession final : public IBackendSession
         const auto& c = collection_ref(collection);
 
         QueryMetadataResult result;
-        for (const auto& [key, current] : c.current)
+        for (const auto& [key, versions] : c.rows)
         {
+            const auto* current = latest_version(versions);
+            if (!current)
+            {
+                continue;
+            }
             if (query.after_key && key <= *query.after_key)
             {
                 continue;
             }
-            if (current.deleted)
+            if (current->deleted)
             {
                 continue;
             }
-            if (!matches_memory_query(key, current.value, query))
+            if (!matches_memory_query(key, current->value, query))
             {
                 continue;
             }
@@ -248,9 +258,9 @@ class MemorySession final : public IBackendSession
                 DocumentMetadata{
                     .collection = collection,
                     .key = key,
-                    .version = current.version,
-                    .deleted = current.deleted,
-                    .value_hash = current.hash
+                    .version = current->version,
+                    .deleted = current->deleted,
+                    .value_hash = current->hash
                 }
             );
 
@@ -272,7 +282,7 @@ class MemorySession final : public IBackendSession
         const auto& c = collection_ref(collection);
 
         QueryResultEnvelope result;
-        for (const auto& [key, versions] : c.history)
+        for (const auto& [key, versions] : c.rows)
         {
             if (options.after_key && key <= *options.after_key)
             {
@@ -314,13 +324,18 @@ class MemorySession final : public IBackendSession
         const auto& c = collection_ref(collection);
 
         QueryMetadataResult result;
-        for (const auto& [key, current] : c.current)
+        for (const auto& [key, versions] : c.rows)
         {
+            const auto* current = latest_version(versions);
+            if (!current)
+            {
+                continue;
+            }
             if (options.after_key && key <= *options.after_key)
             {
                 continue;
             }
-            if (current.deleted)
+            if (current->deleted)
             {
                 continue;
             }
@@ -329,9 +344,9 @@ class MemorySession final : public IBackendSession
                 DocumentMetadata{
                     .collection = collection,
                     .key = key,
-                    .version = current.version,
-                    .deleted = current.deleted,
-                    .value_hash = current.hash
+                    .version = current->version,
+                    .deleted = current->deleted,
+                    .value_hash = current->hash
                 }
             );
 
@@ -352,7 +367,7 @@ class MemorySession final : public IBackendSession
         require_backend_tx();
         std::lock_guard lock(state_->mutex);
         (void)collection_ref(collection);
-        pending_history_.push_back(
+        pending_rows_.push_back(
             PendingMemoryWrite{
                 .collection = collection, .version = memory_version_from(write, commit_version)
             }
@@ -370,11 +385,13 @@ class MemorySession final : public IBackendSession
         auto projected = projected_collection_for_write(collection);
         check_unique_constraints(projected, write);
 
-        pending_current_.push_back(
-            PendingMemoryWrite{
-                .collection = collection, .version = memory_version_from(write, commit_version)
-            }
-        );
+        auto version = memory_version_from(write, commit_version);
+        if (!has_pending_row(collection, version))
+        {
+            pending_rows_.push_back(
+                PendingMemoryWrite{.collection = collection, .version = std::move(version)}
+            );
+        }
     }
 
   private:
@@ -430,8 +447,7 @@ class MemorySession final : public IBackendSession
 
     void clear_pending_commit_state() noexcept
     {
-        pending_history_.clear();
-        pending_current_.clear();
+        pending_rows_.clear();
         pending_commit_version_.reset();
     }
 
@@ -446,14 +462,30 @@ class MemorySession final : public IBackendSession
     MemoryCollection projected_collection_for_write(CollectionId collection) const
     {
         auto projected = copy_collection(collection);
-        for (const auto& pending : pending_current_)
+        for (const auto& pending : pending_rows_)
         {
             if (pending.collection == collection)
             {
-                projected.current[pending.version.key] = pending.version;
+                projected.rows[pending.version.key].push_back(pending.version);
             }
         }
         return projected;
+    }
+
+    bool has_pending_row(
+        CollectionId collection,
+        const MemoryVersion& version
+    ) const
+    {
+        for (const auto& pending : pending_rows_)
+        {
+            if (pending.collection == collection && pending.version.key == version.key &&
+                pending.version.version == version.version)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     MemoryCollection copy_collection(CollectionId collection) const
@@ -490,13 +522,7 @@ class MemorySession final : public IBackendSession
     {
         auto projected_collections = std::map<CollectionId, MemoryCollection>{};
 
-        for (const auto& pending : pending_history_)
-        {
-            auto& projected = projected_collection(projected_collections, pending.collection);
-            projected.history[pending.version.key].push_back(pending.version);
-        }
-
-        for (const auto& pending : pending_current_)
+        for (const auto& pending : pending_rows_)
         {
             auto& projected = projected_collection(projected_collections, pending.collection);
             auto write = WriteEnvelope{
@@ -507,7 +533,7 @@ class MemorySession final : public IBackendSession
                 .value_hash = pending.version.hash
             };
             check_unique_constraints(projected, write);
-            projected.current[pending.version.key] = pending.version;
+            projected.rows[pending.version.key].push_back(pending.version);
         }
 
         return projected_collections;
@@ -549,8 +575,7 @@ class MemorySession final : public IBackendSession
 
   private:
     std::shared_ptr<MemoryState> state_;
-    std::vector<PendingMemoryWrite> pending_history_;
-    std::vector<PendingMemoryWrite> pending_current_;
+    std::vector<PendingMemoryWrite> pending_rows_;
     std::optional<Version> pending_commit_version_;
     bool in_backend_tx_ = false;
     bool owns_clock_lock_ = false;
