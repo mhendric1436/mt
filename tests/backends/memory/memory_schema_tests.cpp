@@ -247,4 +247,3 @@ void test_memory_backend_rejects_nested_index_schema()
 
     EXPECT_THROW_AS(backend.ensure_collection(spec), mt::BackendError);
 }
-

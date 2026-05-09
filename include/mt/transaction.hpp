@@ -383,8 +383,7 @@ class Transaction
 
             record.observed_rows.push_back(
                 PredicateObservedRow{
-                    .id = DocumentId{row.collection, row.key},
-                    .observed_version = row.version
+                    .id = DocumentId{row.collection, row.key}, .observed_version = row.version
                 }
             );
         }
@@ -585,8 +584,7 @@ class Transaction
 
             rows.push_back(
                 PredicateObservedRow{
-                    .id = DocumentId{row.collection, row.key},
-                    .observed_version = row.version
+                    .id = DocumentId{row.collection, row.key}, .observed_version = row.version
                 }
             );
         }
