@@ -135,6 +135,10 @@ Supported field types:
 - `array`
 - `object`
 
+The portable structural contract for schema files is defined by JSON Schema Draft
+2020-12 in `schemas/mt-codegen.schema.json`. See `docs/mt_codegen_schema.md` for the
+full codegen schema contract and the semantic checks enforced by the generator.
+
 Composite keys are supported by specifying multiple fields and a separator:
 
 ```json

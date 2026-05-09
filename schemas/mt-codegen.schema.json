@@ -1,0 +1,288 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/mhendric1436/mt/schemas/mt-codegen.schema.json",
+  "title": "mt codegen schema",
+  "description": "Schema for JSON metadata consumed by tools/mt_codegen.py.",
+  "type": "object",
+  "required": ["table_name", "class_name", "key", "fields"],
+  "properties": {
+    "namespace": {
+      "type": "string",
+      "description": "Optional C++ namespace. Use :: to separate nested namespace segments.",
+      "pattern": "^$|^[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*$",
+      "default": ""
+    },
+    "table_name": {
+      "type": "string",
+      "description": "Logical table or collection name exposed by the generated mapping.",
+      "minLength": 1
+    },
+    "class_name": {
+      "$ref": "#/$defs/cppIdentifier",
+      "description": "Generated row struct name."
+    },
+    "key": {
+      "description": "Single generated field name, or a composite key descriptor.",
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "object",
+          "required": ["fields"],
+          "properties": {
+            "fields": {
+              "type": "array",
+              "description": "At least two generated field names that form the composite key.",
+              "minItems": 2,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "separator": {
+              "type": "string",
+              "description": "Separator inserted between composite key parts.",
+              "minLength": 1,
+              "default": ":"
+            }
+          }
+        }
+      ]
+    },
+    "schema_version": {
+      "type": "integer",
+      "description": "Positive schema version exposed by the generated mapping.",
+      "minimum": 1,
+      "default": 1
+    },
+    "fields": {
+      "type": "array",
+      "description": "Generated row fields.",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/field"
+      }
+    },
+    "indexes": {
+      "description": "Optional JSON path indexes exposed by the generated mapping.",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/index"
+          },
+          "default": []
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "cppIdentifier": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+    },
+    "jsonValue": true,
+    "scalarTypeName": {
+      "enum": ["string", "bool", "int64", "double"]
+    },
+    "valueTypeName": {
+      "enum": ["string", "bool", "int64", "double", "json"]
+    },
+    "field": {
+      "type": "object",
+      "required": ["name", "type"],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/cppIdentifier",
+          "description": "Generated C++ member name and JSON object member name."
+        },
+        "type": {
+          "enum": ["string", "bool", "int64", "double", "json", "optional", "array", "object"]
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Whether schema metadata marks the field as required."
+        },
+        "default": {
+          "$ref": "#/$defs/jsonValue",
+          "description": "Default value for generated C++ initialization and schema metadata."
+        },
+        "value_type": {
+          "description": "Element type for optional and array fields.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/valueTypeName"
+            },
+            {
+              "const": "object"
+            }
+          ]
+        },
+        "class_name": {
+          "$ref": "#/$defs/cppIdentifier",
+          "description": "Generated struct name for object fields and arrays of objects."
+        },
+        "fields": {
+          "type": "array",
+          "description": "Nested generated fields for object fields and arrays of objects.",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/field"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": ["string", "bool", "int64", "double", "json"]
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": ["value_type"]
+                },
+                {
+                  "required": ["class_name"]
+                },
+                {
+                  "required": ["fields"]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "optional"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["value_type"],
+            "properties": {
+              "value_type": {
+                "$ref": "#/$defs/valueTypeName"
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": ["class_name"]
+                },
+                {
+                  "required": ["fields"]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "array"
+              },
+              "value_type": {
+                "const": "object"
+              }
+            },
+            "required": ["type", "value_type"]
+          },
+          "then": {
+            "required": ["value_type", "class_name", "fields"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "array"
+              },
+              "value_type": {
+                "$ref": "#/$defs/valueTypeName"
+              }
+            },
+            "required": ["type", "value_type"]
+          },
+          "then": {
+            "required": ["value_type"],
+            "not": {
+              "anyOf": [
+                {
+                  "required": ["class_name"]
+                },
+                {
+                  "required": ["fields"]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "array"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["value_type"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "object"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["class_name", "fields"],
+            "not": {
+              "required": ["value_type"]
+            }
+          }
+        }
+      ]
+    },
+    "index": {
+      "type": "object",
+      "required": ["name", "path"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "description": "JSONPath-like reference to a top-level generated field.",
+          "pattern": "^\\$\\.[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "unique": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    }
+  }
+}
