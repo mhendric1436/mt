@@ -13,11 +13,6 @@
 namespace mt::backends::postgres::detail
 {
 
-std::string physical_unique_index_name(
-    CollectionId collection,
-    const IndexSpec& index
-);
-
 namespace
 {
 std::uint64_t parse_u64(std::string_view value)
@@ -95,19 +90,6 @@ bool same_index_definition(
 {
     return left.name == right.name && left.json_path == right.json_path &&
            left.unique == right.unique;
-}
-
-std::string create_physical_unique_index_sql(
-    CollectionId collection,
-    const IndexSpec& index
-)
-{
-    auto field_name = top_level_index_field_name(index);
-    return "CREATE UNIQUE INDEX IF NOT EXISTS " + physical_unique_index_name(collection, index) +
-           " ON mt_current (collection_id, ((value_json ->> " + sql_literal(field_name) +
-           "))) "
-           "WHERE deleted = false AND collection_id = " +
-           std::to_string(collection);
 }
 
 } // namespace
@@ -214,36 +196,41 @@ std::string PrivateSchemaSql::create_active_transactions_table()
            ")";
 }
 
-std::string PrivateSchemaSql::create_history_table()
+std::string PrivateSchemaSql::create_user_table(std::string_view logical_name)
 {
-    return "CREATE TABLE IF NOT EXISTS mt_history ("
-           "collection_id BIGINT NOT NULL REFERENCES mt_collections(id),"
+    auto table = quote_identifier(physical_user_table_name(logical_name));
+    return "CREATE TABLE IF NOT EXISTS " + table +
+           " ("
            "document_key TEXT NOT NULL,"
            "version BIGINT NOT NULL,"
+           "is_current BOOLEAN NOT NULL,"
            "deleted BOOLEAN NOT NULL,"
            "value_hash TEXT NOT NULL,"
            "value_json JSONB,"
-           "PRIMARY KEY (collection_id, document_key, version)"
+           "PRIMARY KEY (document_key, version)"
            ")";
 }
 
-std::string PrivateSchemaSql::create_history_snapshot_index()
+std::string PrivateSchemaSql::create_current_key_index(std::string_view logical_name)
 {
-    return "CREATE INDEX IF NOT EXISTS mt_history_snapshot_idx "
-           "ON mt_history (collection_id, document_key, version)";
+    auto index = quote_identifier(physical_current_key_index_name(logical_name));
+    auto table = quote_identifier(physical_user_table_name(logical_name));
+    return "CREATE UNIQUE INDEX IF NOT EXISTS " + index + " ON " + table +
+           " (document_key) WHERE is_current = true";
 }
 
-std::string PrivateSchemaSql::create_current_table()
+std::string PrivateSchemaSql::create_json_index(
+    std::string_view logical_name,
+    const IndexSpec& index
+)
 {
-    return "CREATE TABLE IF NOT EXISTS mt_current ("
-           "collection_id BIGINT NOT NULL REFERENCES mt_collections(id),"
-           "document_key TEXT NOT NULL,"
-           "version BIGINT NOT NULL,"
-           "deleted BOOLEAN NOT NULL,"
-           "value_hash TEXT NOT NULL,"
-           "value_json JSONB,"
-           "PRIMARY KEY (collection_id, document_key)"
-           ")";
+    auto index_name = quote_identifier(physical_json_index_name(logical_name, index));
+    auto table = quote_identifier(physical_user_table_name(logical_name));
+    auto field_name = top_level_index_field_name(index);
+    auto unique = index.unique ? std::string("UNIQUE ") : std::string{};
+    return "CREATE " + unique + "INDEX IF NOT EXISTS " + index_name + " ON " + table +
+           " ((value_json ->> " + sql_literal(field_name) +
+           ")) WHERE is_current = true AND deleted = false";
 }
 
 std::string PrivateSchemaSql::count_private_tables()
@@ -253,7 +240,7 @@ std::string PrivateSchemaSql::count_private_tables()
            "WHERE table_schema = current_schema() "
            "AND table_name IN ("
            "'mt_metadata', 'mt_collections', 'mt_schema_snapshots', 'mt_clock', "
-           "'mt_active_transactions', 'mt_history', 'mt_current')";
+           "'mt_active_transactions')";
 }
 
 std::string PrivateSchemaSql::select_metadata_schema_version()
@@ -318,39 +305,44 @@ std::string PrivateSchemaSql::count_active_transactions()
     return "SELECT COUNT(*) FROM mt_active_transactions";
 }
 
-std::string PrivateSchemaSql::select_snapshot_document()
+std::string PrivateSchemaSql::select_snapshot_document(std::string_view logical_name)
 {
+    auto table = quote_identifier(physical_user_table_name(logical_name));
     return "SELECT version, deleted, value_hash, value_json::text "
-           "FROM mt_history "
-           "WHERE collection_id = $1::bigint AND document_key = $2 AND version <= $3::bigint "
+           "FROM " +
+           table +
+           " WHERE document_key = $1 AND version <= $2::bigint "
            "ORDER BY version DESC LIMIT 1";
 }
 
-std::string PrivateSchemaSql::select_current_metadata()
+std::string PrivateSchemaSql::select_current_metadata(std::string_view logical_name)
 {
+    auto table = quote_identifier(physical_user_table_name(logical_name));
     return "SELECT version, deleted, value_hash "
-           "FROM mt_current "
-           "WHERE collection_id = $1::bigint AND document_key = $2";
+           "FROM " +
+           table + " WHERE document_key = $1 AND is_current = true";
 }
 
 std::string PrivateSchemaSql::select_snapshot_list(
+    std::string_view logical_name,
     bool has_after_key,
     bool has_limit
 )
 {
-    auto sql = std::string(
-        "SELECT h.document_key, h.version, h.deleted, h.value_hash, h.value_json::text "
-        "FROM mt_history h "
-        "WHERE h.collection_id = $1::bigint "
-        "AND h.version = ("
-        "SELECT MAX(h2.version) FROM mt_history h2 "
-        "WHERE h2.collection_id = h.collection_id "
-        "AND h2.document_key = h.document_key "
-        "AND h2.version <= $2::bigint"
-        ") "
-        "AND h.deleted = false "
-    );
-    auto next_param = 3;
+    auto table = quote_identifier(physical_user_table_name(logical_name));
+    auto sql = "SELECT h.document_key, h.version, h.deleted, h.value_hash, h.value_json::text "
+               "FROM " +
+               table +
+               " h "
+               "WHERE h.version = ("
+               "SELECT MAX(h2.version) FROM " +
+               table +
+               " h2 "
+               "WHERE h2.document_key = h.document_key "
+               "AND h2.version <= $1::bigint"
+               ") "
+               "AND h.deleted = false ";
+    auto next_param = 2;
     if (has_after_key)
     {
         sql += "AND h.document_key > $" + std::to_string(next_param++) + " ";
@@ -364,16 +356,16 @@ std::string PrivateSchemaSql::select_snapshot_list(
 }
 
 std::string PrivateSchemaSql::select_current_metadata_list(
+    std::string_view logical_name,
     bool has_after_key,
     bool has_limit
 )
 {
-    auto sql = std::string(
-        "SELECT document_key, version, deleted, value_hash "
-        "FROM mt_current "
-        "WHERE collection_id = $1::bigint "
-    );
-    auto next_param = 2;
+    auto table = quote_identifier(physical_user_table_name(logical_name));
+    auto sql = "SELECT document_key, version, deleted, value_hash "
+               "FROM " +
+               table + " WHERE is_current = true ";
+    auto next_param = 1;
     if (has_after_key)
     {
         sql += "AND document_key > $" + std::to_string(next_param++) + " ";
@@ -386,13 +378,37 @@ std::string PrivateSchemaSql::select_current_metadata_list(
     return sql;
 }
 
-std::string PrivateSchemaSql::select_current_query_candidates(bool has_after_key)
+std::string PrivateSchemaSql::select_current_query_candidates(
+    std::string_view logical_name,
+    bool has_after_key
+)
 {
-    auto sql = std::string(
-        "SELECT document_key, version, deleted, value_hash, value_json::text "
-        "FROM mt_current "
-        "WHERE collection_id = $1::bigint "
-    );
+    auto table = quote_identifier(physical_user_table_name(logical_name));
+    auto sql = "SELECT document_key, version, deleted, value_hash, value_json::text "
+               "FROM " +
+               table + " WHERE is_current = true ";
+    if (has_after_key)
+    {
+        sql += "AND document_key > $1 ";
+    }
+    sql += "ORDER BY document_key";
+    return sql;
+}
+
+std::string PrivateSchemaSql::select_current_query_by_index(
+    std::string_view logical_name,
+    std::string_view field_name,
+    bool has_after_key
+)
+{
+    auto table = quote_identifier(physical_user_table_name(logical_name));
+    auto sql = "SELECT document_key, version, deleted, value_hash, value_json::text "
+               "FROM " +
+               table +
+               " WHERE is_current = true "
+               "AND deleted = false "
+               "AND value_json ->> " +
+               sql_literal(field_name) + " = $1 ";
     if (has_after_key)
     {
         sql += "AND document_key > $2 ";
@@ -401,75 +417,52 @@ std::string PrivateSchemaSql::select_current_query_candidates(bool has_after_key
     return sql;
 }
 
-std::string PrivateSchemaSql::select_current_query_by_index(
-    std::string_view field_name,
-    bool has_after_key
+std::string PrivateSchemaSql::insert_user_row(
+    std::string_view logical_name,
+    bool is_current
 )
 {
-    auto sql = std::string(
-        "SELECT document_key, version, deleted, value_hash, value_json::text "
-        "FROM mt_current "
-        "WHERE collection_id = $1::bigint "
-        "AND deleted = false "
-        "AND value_json ->> " +
-        sql_literal(field_name) + " = $2 "
-    );
-    if (has_after_key)
-    {
-        sql += "AND document_key > $3 ";
-    }
-    sql += "ORDER BY document_key";
-    return sql;
-}
-
-std::string PrivateSchemaSql::select_current_unique_index_candidates()
-{
-    return "SELECT document_key, value_json::text "
-           "FROM mt_current "
-           "WHERE collection_id = $1::bigint "
-           "AND document_key <> $2 "
-           "AND deleted = false";
-}
-
-std::string PrivateSchemaSql::insert_history()
-{
-    return "INSERT INTO mt_history "
-           "(collection_id, document_key, version, deleted, value_hash, value_json) "
-           "VALUES ($1::bigint, $2, $3::bigint, $4::boolean, $5, "
-           "CASE WHEN $4::boolean THEN NULL ELSE $6::jsonb END)";
-}
-
-std::string PrivateSchemaSql::upsert_current()
-{
-    return "INSERT INTO mt_current "
-           "(collection_id, document_key, version, deleted, value_hash, value_json) "
-           "VALUES ($1::bigint, $2, $3::bigint, $4::boolean, $5, "
-           "CASE WHEN $4::boolean THEN NULL ELSE $6::jsonb END) "
-           "ON CONFLICT (collection_id, document_key) DO UPDATE SET "
-           "version = EXCLUDED.version, "
+    auto table = quote_identifier(physical_user_table_name(logical_name));
+    return "INSERT INTO " + table +
+           " (document_key, version, is_current, deleted, value_hash, value_json) "
+           "VALUES ($1, $2::bigint, " +
+           std::string(is_current ? "true" : "false") +
+           ", $3::boolean, $4, CASE WHEN $3::boolean THEN NULL ELSE $5::jsonb END) "
+           "ON CONFLICT (document_key, version) DO UPDATE SET "
+           "is_current = EXCLUDED.is_current, "
            "deleted = EXCLUDED.deleted, "
            "value_hash = EXCLUDED.value_hash, "
            "value_json = EXCLUDED.value_json";
 }
 
-std::string PrivateSchemaSql::select_history_row_by_collection_key()
+std::string PrivateSchemaSql::clear_current_row(std::string_view logical_name)
 {
-    return "SELECT version, deleted, value_hash, value_json::text "
-           "FROM mt_history "
-           "WHERE collection_id = $1::bigint AND document_key = $2 "
-           "ORDER BY version";
+    auto table = quote_identifier(physical_user_table_name(logical_name));
+    return "UPDATE " + table +
+           " SET is_current = false "
+           "WHERE document_key = $1 AND is_current = true";
 }
 
-std::string PrivateSchemaSql::select_current_row_by_collection_key()
+std::string PrivateSchemaSql::select_user_row_by_key(
+    std::string_view logical_name,
+    bool only_current
+)
 {
-    return "SELECT version, deleted, value_hash, value_json::text "
-           "FROM mt_current "
-           "WHERE collection_id = $1::bigint AND document_key = $2";
+    auto table = quote_identifier(physical_user_table_name(logical_name));
+    auto sql = "SELECT version, deleted, value_hash, value_json::text, is_current "
+               "FROM " +
+               table + " WHERE document_key = $1";
+    if (only_current)
+    {
+        sql += " AND is_current = true";
+    }
+    sql += " ORDER BY version";
+    return sql;
 }
 
-std::string PrivateSchemaSql::count_history_rows()
+std::string PrivateSchemaSql::count_user_rows(std::string_view logical_name)
 {
-    return "SELECT COUNT(*) FROM mt_history";
+    return "SELECT COUNT(*) FROM " + quote_identifier(physical_user_table_name(logical_name));
 }
 
 std::string PrivateSchemaSql::select_collection_spec_by_logical_name()
@@ -525,13 +518,16 @@ std::string PrivateSchemaSql::select_collection_indexes_by_id()
     return "SELECT indexes_json FROM mt_schema_snapshots WHERE collection_id = $1::bigint";
 }
 
-std::string PrivateSchemaSql::select_current_document_with_missing_index_value()
+std::string
+PrivateSchemaSql::select_current_document_with_missing_index_value(std::string_view logical_name)
 {
+    auto table = quote_identifier(physical_user_table_name(logical_name));
     return "SELECT document_key "
-           "FROM mt_current "
-           "WHERE collection_id = $1::bigint "
+           "FROM " +
+           table +
+           " WHERE is_current = true "
            "AND deleted = false "
-           "AND value_json ->> $2 IS NULL "
+           "AND value_json ->> $1 IS NULL "
            "LIMIT 1";
 }
 
@@ -560,11 +556,6 @@ void bootstrap_schema(
     connection.exec_command(PrivateSchemaSql::create_schema_snapshots_table());
 
     connection.exec_command(PrivateSchemaSql::create_active_transactions_table());
-
-    connection.exec_command(PrivateSchemaSql::create_history_table());
-    connection.exec_command(PrivateSchemaSql::create_history_snapshot_index());
-
-    connection.exec_command(PrivateSchemaSql::create_current_table());
 }
 
 std::optional<CollectionSpec> load_collection_spec(
@@ -660,7 +651,7 @@ CollectionDescriptor insert_collection(
          common::serialize_indexes(spec.indexes)},
         {PGRES_COMMAND_OK}
     );
-    create_physical_unique_indexes(connection, descriptor.id, spec);
+    create_user_storage(connection, spec);
     return descriptor;
 }
 
@@ -697,14 +688,6 @@ std::vector<IndexSpec> load_collection_indexes(
     return common::deserialize_indexes(result.value(0, 0));
 }
 
-std::string physical_unique_index_name(
-    CollectionId collection,
-    const IndexSpec& index
-)
-{
-    return "mt_current_uix_" + std::to_string(collection) + "_" + safe_identifier_part(index.name);
-}
-
 void validate_postgres_index_update(
     const CollectionSpec& existing,
     const CollectionSpec& requested
@@ -726,14 +709,14 @@ void validate_postgres_index_update(
 
 void validate_existing_values_for_unique_index(
     Connection& connection,
-    CollectionId collection,
+    const CollectionSpec& spec,
     const IndexSpec& index
 )
 {
     auto field_name = top_level_index_field_name(index);
     auto missing = connection.exec_params(
-        PrivateSchemaSql::select_current_document_with_missing_index_value(),
-        {std::to_string(collection), field_name}, {PGRES_TUPLES_OK}
+        PrivateSchemaSql::select_current_document_with_missing_index_value(spec.logical_name),
+        {field_name}, {PGRES_TUPLES_OK}
     );
     if (missing.rows() != 0)
     {
@@ -741,40 +724,42 @@ void validate_existing_values_for_unique_index(
     }
 }
 
-void create_physical_unique_indexes(
+void create_user_storage(
     Connection& connection,
-    CollectionId collection,
     const CollectionSpec& spec
 )
 {
+    connection.exec_command(PrivateSchemaSql::create_user_table(spec.logical_name));
+    connection.exec_command(PrivateSchemaSql::create_current_key_index(spec.logical_name));
     for (const auto& index : spec.indexes)
     {
-        if (!index.unique)
+        if (index.unique)
         {
-            continue;
+            validate_existing_values_for_unique_index(connection, spec, index);
         }
 
-        validate_existing_values_for_unique_index(connection, collection, index);
-        connection.exec_command(create_physical_unique_index_sql(collection, index));
+        connection.exec_command(PrivateSchemaSql::create_json_index(spec.logical_name, index));
     }
 }
 
-void create_added_physical_unique_indexes(
+void create_added_user_indexes(
     Connection& connection,
-    CollectionId collection,
     const CollectionSpec& existing,
     const CollectionSpec& requested
 )
 {
     for (const auto& index : requested.indexes)
     {
-        if (!index.unique || find_index_by_name(existing.indexes, index.name))
+        if (find_index_by_name(existing.indexes, index.name))
         {
             continue;
         }
 
-        validate_existing_values_for_unique_index(connection, collection, index);
-        connection.exec_command(create_physical_unique_index_sql(collection, index));
+        if (index.unique)
+        {
+            validate_existing_values_for_unique_index(connection, requested, index);
+        }
+        connection.exec_command(PrivateSchemaSql::create_json_index(requested.logical_name, index));
     }
 }
 

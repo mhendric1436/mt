@@ -273,9 +273,10 @@ std::optional<DocumentEnvelope> PostgresSession::read_snapshot(
 {
     require_backend_tx();
 
+    auto spec = detail::load_collection_spec(*connection_, collection);
     auto result = connection_->exec_params(
-        detail::PrivateSchemaSql::select_snapshot_document(),
-        {std::to_string(collection), std::string(key), std::to_string(version)}, {PGRES_TUPLES_OK}
+        detail::PrivateSchemaSql::select_snapshot_document(spec.logical_name),
+        {std::string(key), std::to_string(version)}, {PGRES_TUPLES_OK}
     );
     if (result.rows() == 0)
     {
@@ -300,9 +301,10 @@ std::optional<DocumentMetadata> PostgresSession::read_current_metadata(
 {
     require_backend_tx();
 
+    auto spec = detail::load_collection_spec(*connection_, collection);
     auto result = connection_->exec_params(
-        detail::PrivateSchemaSql::select_current_metadata(),
-        {std::to_string(collection), std::string(key)}, {PGRES_TUPLES_OK}
+        detail::PrivateSchemaSql::select_current_metadata(spec.logical_name), {std::string(key)},
+        {PGRES_TUPLES_OK}
     );
     if (result.rows() == 0)
     {
@@ -361,7 +363,7 @@ QueryMetadataResult PostgresSession::query_current_metadata(
 
     auto spec = detail::load_collection_spec(*connection_, collection);
     auto indexed = find_indexed_json_equality(spec, query);
-    auto params = std::vector<std::string>{std::to_string(collection)};
+    auto params = std::vector<std::string>{};
     std::string sql;
     if (indexed)
     {
@@ -374,7 +376,8 @@ QueryMetadataResult PostgresSession::query_current_metadata(
                 params.push_back(*query.after_key);
             }
             sql = detail::PrivateSchemaSql::select_current_query_by_index(
-                top_level_index_field_name(*indexed->index), query.after_key.has_value()
+                spec.logical_name, top_level_index_field_name(*indexed->index),
+                query.after_key.has_value()
             );
         }
     }
@@ -385,8 +388,9 @@ QueryMetadataResult PostgresSession::query_current_metadata(
         {
             params.push_back(*query.after_key);
         }
-        sql =
-            detail::PrivateSchemaSql::select_current_query_candidates(query.after_key.has_value());
+        sql = detail::PrivateSchemaSql::select_current_query_candidates(
+            spec.logical_name, query.after_key.has_value()
+        );
     }
 
     auto result = connection_->exec_params(sql, params, {PGRES_TUPLES_OK});
@@ -432,7 +436,8 @@ QueryResultEnvelope PostgresSession::list_snapshot(
 {
     require_backend_tx();
 
-    auto params = std::vector<std::string>{std::to_string(collection), std::to_string(version)};
+    auto spec = detail::load_collection_spec(*connection_, collection);
+    auto params = std::vector<std::string>{std::to_string(version)};
     if (options.after_key)
     {
         params.push_back(*options.after_key);
@@ -444,7 +449,7 @@ QueryResultEnvelope PostgresSession::list_snapshot(
 
     auto result = connection_->exec_params(
         detail::PrivateSchemaSql::select_snapshot_list(
-            options.after_key.has_value(), options.limit.has_value()
+            spec.logical_name, options.after_key.has_value(), options.limit.has_value()
         ),
         params, {PGRES_TUPLES_OK}
     );
@@ -475,7 +480,8 @@ QueryMetadataResult PostgresSession::list_current_metadata(
 {
     require_backend_tx();
 
-    auto params = std::vector<std::string>{std::to_string(collection)};
+    auto spec = detail::load_collection_spec(*connection_, collection);
+    auto params = std::vector<std::string>{};
     if (options.after_key)
     {
         params.push_back(*options.after_key);
@@ -487,7 +493,7 @@ QueryMetadataResult PostgresSession::list_current_metadata(
 
     auto result = connection_->exec_params(
         detail::PrivateSchemaSql::select_current_metadata_list(
-            options.after_key.has_value(), options.limit.has_value()
+            spec.logical_name, options.after_key.has_value(), options.limit.has_value()
         ),
         params, {PGRES_TUPLES_OK}
     );
@@ -517,11 +523,11 @@ void PostgresSession::insert_history(
 {
     require_backend_tx();
 
+    auto spec = detail::load_collection_spec(*connection_, collection);
     connection_->exec_params(
-        detail::PrivateSchemaSql::insert_history(),
-        {std::to_string(collection), write.key, std::to_string(commit_version),
-         write_is_deleted(write) ? "true" : "false", hash_to_text(write.value_hash),
-         write_value_text(write)},
+        detail::PrivateSchemaSql::insert_user_row(spec.logical_name, false),
+        {write.key, std::to_string(commit_version), write_is_deleted(write) ? "true" : "false",
+         hash_to_text(write.value_hash), write_value_text(write)},
         {PGRES_COMMAND_OK}
     );
 }
@@ -535,11 +541,15 @@ void PostgresSession::upsert_current(
     require_backend_tx();
     check_unique_constraints(*connection_, collection, write);
 
+    auto spec = detail::load_collection_spec(*connection_, collection);
     connection_->exec_params(
-        detail::PrivateSchemaSql::upsert_current(),
-        {std::to_string(collection), write.key, std::to_string(commit_version),
-         write_is_deleted(write) ? "true" : "false", hash_to_text(write.value_hash),
-         write_value_text(write)},
+        detail::PrivateSchemaSql::clear_current_row(spec.logical_name), {write.key},
+        {PGRES_COMMAND_OK}
+    );
+    connection_->exec_params(
+        detail::PrivateSchemaSql::insert_user_row(spec.logical_name, true),
+        {write.key, std::to_string(commit_version), write_is_deleted(write) ? "true" : "false",
+         hash_to_text(write.value_hash), write_value_text(write)},
         {PGRES_COMMAND_OK}
     );
 }

@@ -97,6 +97,18 @@ void reset_postgres_private_tables(std::string_view dsn)
     auto connection = mt::backends::postgres::detail::Connection::open(dsn);
     connection.exec_command("DROP SEQUENCE IF EXISTS mt_tx_id_seq CASCADE");
     connection.exec_command(
+        "DO $$ "
+        "DECLARE table_name text; "
+        "BEGIN "
+        "FOR table_name IN "
+        "SELECT tablename FROM pg_tables "
+        "WHERE schemaname = current_schema() AND tablename LIKE 'mt_user_%' "
+        "LOOP "
+        "EXECUTE format('DROP TABLE IF EXISTS %I CASCADE', table_name); "
+        "END LOOP; "
+        "END $$"
+    );
+    connection.exec_command(
         "DROP TABLE IF EXISTS "
         "mt_current, mt_history, mt_active_transactions, mt_schema_snapshots, "
         "mt_collections, mt_clock, mt_metadata "
@@ -349,8 +361,10 @@ void test_postgres_backend_document_writes_insert_history_and_current(std::strin
 
     auto connection = mt::backends::postgres::detail::Connection::open(dsn);
     auto history = connection.exec_params(
-        mt::backends::postgres::detail::PrivateSchemaSql::select_history_row_by_collection_key(),
-        {std::to_string(descriptor.id), "user:1"}, {PGRES_TUPLES_OK}
+        mt::backends::postgres::detail::PrivateSchemaSql::select_user_row_by_key(
+            "postgres_document_users"
+        ),
+        {"user:1"}, {PGRES_TUPLES_OK}
     );
     if (history.rows() != 1 || history.value(0, 0) != "7" || history.value(0, 1) != "f" ||
         history.value(0, 2) != "1213" ||
@@ -360,8 +374,10 @@ void test_postgres_backend_document_writes_insert_history_and_current(std::strin
     }
 
     auto current = connection.exec_params(
-        mt::backends::postgres::detail::PrivateSchemaSql::select_current_row_by_collection_key(),
-        {std::to_string(descriptor.id), "user:1"}, {PGRES_TUPLES_OK}
+        mt::backends::postgres::detail::PrivateSchemaSql::select_user_row_by_key(
+            "postgres_document_users", true
+        ),
+        {"user:1"}, {PGRES_TUPLES_OK}
     );
     if (current.rows() != 1 || current.value(0, 0) != "7" || current.value(0, 1) != "f" ||
         current.value(0, 2) != "1213" ||
@@ -393,8 +409,10 @@ void test_postgres_backend_document_writes_store_delete_tombstone(std::string_vi
 
     auto connection = mt::backends::postgres::detail::Connection::open(dsn);
     auto current = connection.exec_params(
-        mt::backends::postgres::detail::PrivateSchemaSql::select_current_row_by_collection_key(),
-        {std::to_string(descriptor.id), "user:1"}, {PGRES_TUPLES_OK}
+        mt::backends::postgres::detail::PrivateSchemaSql::select_user_row_by_key(
+            "postgres_document_deletes", true
+        ),
+        {"user:1"}, {PGRES_TUPLES_OK}
     );
     if (current.rows() != 1 || current.value(0, 0) != "8" || current.value(0, 1) != "t" ||
         current.value(0, 2) != "2122" || !current.is_null(0, 3))
@@ -426,8 +444,10 @@ void test_postgres_backend_document_writes_rollback_on_abort(std::string_view ds
 
     auto connection = mt::backends::postgres::detail::Connection::open(dsn);
     auto history = connection.exec_params(
-        mt::backends::postgres::detail::PrivateSchemaSql::select_history_row_by_collection_key(),
-        {std::to_string(descriptor.id), "user:1"}, {PGRES_TUPLES_OK}
+        mt::backends::postgres::detail::PrivateSchemaSql::select_user_row_by_key(
+            "postgres_document_aborts"
+        ),
+        {"user:1"}, {PGRES_TUPLES_OK}
     );
     if (history.rows() != 0)
     {
@@ -829,8 +849,8 @@ void test_postgres_backend_enforces_unique_indexes(std::string_view dsn)
 {
     auto backend = mt::backends::postgres::PostgresBackend(std::string(dsn));
     auto descriptor = backend.ensure_collection(postgres_user_schema("postgres_unique_users"));
-    auto physical_index = mt::backends::postgres::detail::physical_unique_index_name(
-        descriptor.id, mt::IndexSpec::json_path_index("email", "$.email").make_unique()
+    auto physical_index = mt::backends::postgres::detail::physical_json_index_name(
+        "postgres_unique_users", mt::IndexSpec::json_path_index("email", "$.email").make_unique()
     );
     if (count_physical_index(dsn, physical_index) != 1)
     {
@@ -1060,7 +1080,7 @@ void test_postgres_bootstrap_creates_private_tables(std::string_view dsn)
     auto tables = connection.exec_query(
         mt::backends::postgres::detail::PrivateSchemaSql::count_private_tables()
     );
-    if (tables.rows() != 1 || tables.value(0, 0) != "7")
+    if (tables.rows() != 1 || tables.value(0, 0) != "5")
     {
         throw mt::BackendError("postgres bootstrap did not create all private tables");
     }
@@ -1139,8 +1159,9 @@ void test_postgres_rebuilds_added_unique_index(std::string_view dsn)
     auto requested = postgres_user_schema("postgres_rebuild_unique_users");
     requested.schema_version = 2;
     auto updated = backend.ensure_collection(requested);
-    auto physical_index = mt::backends::postgres::detail::physical_unique_index_name(
-        descriptor.id, mt::IndexSpec::json_path_index("email", "$.email").make_unique()
+    auto physical_index = mt::backends::postgres::detail::physical_json_index_name(
+        "postgres_rebuild_unique_users",
+        mt::IndexSpec::json_path_index("email", "$.email").make_unique()
     );
 
     if (updated.id != descriptor.id || updated.schema_version != 2 ||
