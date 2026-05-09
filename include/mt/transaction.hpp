@@ -52,14 +52,12 @@ struct ReadRecord
 {
     DocumentId id;
     Version observed_version = 0;
-    Hash observed_hash;
 };
 
 struct PredicateObservedRow
 {
     DocumentId id;
     Version observed_version = 0;
-    Hash observed_hash;
 
     friend bool operator==(
         const PredicateObservedRow&,
@@ -279,12 +277,10 @@ class Transaction
         if (doc && !doc->deleted)
         {
             record.observed_version = doc->version;
-            record.observed_hash = doc->value_hash;
         }
         else if (doc && doc->deleted)
         {
             record.observed_version = doc->version;
-            record.observed_hash = doc->value_hash;
             doc = std::nullopt;
         }
         else
@@ -388,8 +384,7 @@ class Transaction
             record.observed_rows.push_back(
                 PredicateObservedRow{
                     .id = DocumentId{row.collection, row.key},
-                    .observed_version = row.version,
-                    .observed_hash = row.value_hash
+                    .observed_version = row.version
                 }
             );
         }
@@ -591,8 +586,7 @@ class Transaction
             rows.push_back(
                 PredicateObservedRow{
                     .id = DocumentId{row.collection, row.key},
-                    .observed_version = row.version,
-                    .observed_hash = row.value_hash
+                    .observed_version = row.version
                 }
             );
         }

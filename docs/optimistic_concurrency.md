@@ -48,8 +48,8 @@ anything to storage.
 ### Point Read Validation
 
 Every key fetched with `get` or `require` during the transaction is tracked in the read
-set along with its observed version and content hash. At commit, each entry is checked
-against the current backend state:
+set along with its observed version. At commit, each entry is checked against the
+current backend state:
 
 - If the key was absent when read (`observed_version == 0`), any concurrent commit that
   created that key after `start_version` is a conflict.
@@ -69,8 +69,8 @@ reading it first.
 ### Predicate Read Validation
 
 `list` and `query` calls record a predicate read: the query parameters plus the sorted
-set of (key, version, hash) tuples returned at snapshot time. At commit, the query is
-re-executed against current backend metadata and the result set is compared.
+set of key/version pairs returned at snapshot time. At commit, the query is re-executed
+against current backend metadata and the result set is compared.
 
 If the membership or state of any row in the result has changed — new rows appeared,
 existing rows changed, or rows were deleted — the commit throws `TransactionConflict`.
