@@ -107,6 +107,26 @@ For example, logical table `users` maps to physical row store `mt_user_users`. T
 a direct one-to-one mapping. Backend-private metadata continues to use separate `mt_*`
 tables such as `mt_collections` and `mt_clock`.
 
+Production SQL backends should store current and historical row versions for a logical
+table in that single physical row store. The core backend interface still has separate
+`insert_history()` and `upsert_current()` calls because the commit protocol needs both
+history and current semantics; that does not require separate physical SQL tables.
+
+The expected physical row shape is:
+
+```text
+document_key
+version
+is_current
+deleted
+value_hash
+value_json
+```
+
+`version` remains the OCC conflict token. `value_hash` may remain stored for API,
+diagnostics, and efficient metadata comparisons, but OCC validation does not depend on
+it.
+
 `ensure_collection(spec)` should follow this shape:
 
 ```text

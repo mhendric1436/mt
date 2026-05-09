@@ -162,6 +162,30 @@ The memory backend stores snapshots in process-local state only. Its schema snap
 rows do not survive process restarts, so a new process recreates tables from the latest
 generated mappings in the binary.
 
+## User Row Storage
+
+`CollectionSpec.logical_name` is the generated mapping `table_name`: the logical user
+table name. Backends should map each logical user table to exactly one physical row
+store named:
+
+```text
+mt_user_<logical_name>
+```
+
+For example, logical user table `users` maps to physical row store `mt_user_users`.
+The `mt_user_` prefix keeps user row storage in the backend-owned namespace while
+preserving a direct one-to-one mapping between generated tables and backend storage.
+
+Backend-private metadata tables remain separate and continue to use the `mt_*`
+namespace, such as `mt_collections`, `mt_clock`, and `mt_active_transactions`.
+Implementations may quote the physical SQL identifier when emitting SQL; the quotes are
+SQL syntax and are not part of the logical table name.
+
+The physical user row store should contain both current and historical row versions for
+that logical table. Backends may expose separate `insert_history()` and
+`upsert_current()` interface methods, but those methods should update the same physical
+user row store for production SQL layouts.
+
 ## Active Transactions
 
 Implemented by `IBackendActiveTransactions`.
@@ -201,6 +225,7 @@ A production backend must provide:
 - stable snapshot reads by version
 - current metadata suitable for conflict detection
 - consistent query/list semantics across snapshot and metadata methods
+- one physical user row store per logical table using `mt_user_<logical_name>` naming
 - private schema snapshot storage with atomic compatible updates
 - truthful capability reporting
 - best-effort, non-throwing abort cleanup

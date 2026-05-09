@@ -20,6 +20,13 @@ Current implementation status:
 - document history/current writes, point reads, list, query, and unique index enforcement
 - transaction/table integration through generated mappings
 
+Storage direction:
+
+- each logical user table maps to one physical row table named `mt_user_<table_name>`
+- that row table stores both current and historical row versions
+- backend-private metadata remains in separate `mt_*` tables
+- SQL identifiers generated from physical names should be quoted when emitted
+
 Schema behavior:
 
 - Compatible schema changes are accepted by comparing stored private schema snapshots with

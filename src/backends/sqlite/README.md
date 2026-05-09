@@ -27,6 +27,13 @@ sqlite_detail.hpp        Low-level SQLite RAII wrappers, storage path helpers, a
                          private SQL statement strings.
 ```
 
+## Storage Direction
+
+SQLite should map each logical user table to one physical row table named
+`mt_user_<table_name>`. That table should store both current and historical row
+versions, distinguished by row metadata such as `is_current`, `version`, and `deleted`.
+Backend-private metadata remains in separate `mt_*` tables.
+
 All SQLite implementation files are intentionally private to this optional
 backend directory. Public mt headers should remain free of SQLite headers and
 link requirements.

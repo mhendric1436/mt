@@ -142,7 +142,8 @@ full codegen schema contract and the semantic checks enforced by the generator.
 Schema `table_name` values are logical user table names. Backends map each one to
 exactly one physical row store named `mt_user_<table_name>`, so table names must be
 lowercase SQL-safe identifiers and must not collide with SQL keywords or the reserved
-`mt_` prefix.
+`mt_` prefix. The physical store contains both current and historical row versions for
+that user table.
 
 Composite keys are supported by specifying multiple fields and a separator:
 
