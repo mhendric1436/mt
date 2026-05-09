@@ -2,6 +2,7 @@
 
 #include "sqlite_constraints.hpp"
 #include "sqlite_document.hpp"
+#include "sqlite_schema.hpp"
 
 #include "mt/errors.hpp"
 #include "mt/query.hpp"
@@ -167,12 +168,12 @@ std::optional<DocumentEnvelope> SqliteSession::read_snapshot(
 {
     require_backend_tx();
 
+    auto spec = load_collection_spec(*connection_, collection);
     detail::Statement statement{
-        connection_->get(), detail::PrivateSchemaSql::select_snapshot_document()
+        connection_->get(), detail::PrivateSchemaSql::select_snapshot_document(spec.logical_name)
     };
-    statement.bind_int64(1, collection);
-    statement.bind_text(2, key);
-    statement.bind_int64(3, version);
+    statement.bind_text(1, key);
+    statement.bind_int64(2, version);
     if (!statement.step())
     {
         return std::nullopt;
@@ -196,11 +197,11 @@ std::optional<DocumentMetadata> SqliteSession::read_current_metadata(
 {
     require_backend_tx();
 
+    auto spec = load_collection_spec(*connection_, collection);
     detail::Statement statement{
-        connection_->get(), detail::PrivateSchemaSql::select_current_metadata()
+        connection_->get(), detail::PrivateSchemaSql::select_current_metadata(spec.logical_name)
     };
-    statement.bind_int64(1, collection);
-    statement.bind_text(2, key);
+    statement.bind_text(1, key);
     if (!statement.step())
     {
         return std::nullopt;
@@ -256,12 +257,13 @@ QueryMetadataResult SqliteSession::query_current_metadata(
     require_backend_tx();
     validate_supported_query(query);
 
-    auto sql =
-        detail::PrivateSchemaSql::select_current_query_candidates(query.after_key.has_value());
+    auto spec = load_collection_spec(*connection_, collection);
+    auto sql = detail::PrivateSchemaSql::select_current_query_candidates(
+        spec.logical_name, query.after_key.has_value()
+    );
 
     detail::Statement statement{connection_->get(), sql};
     auto index = 1;
-    statement.bind_int64(index++, collection);
     if (query.after_key)
     {
         statement.bind_text(index++, *query.after_key);
@@ -308,13 +310,13 @@ QueryResultEnvelope SqliteSession::list_snapshot(
 {
     require_backend_tx();
 
+    auto spec = load_collection_spec(*connection_, collection);
     auto sql = detail::PrivateSchemaSql::select_snapshot_list(
-        options.after_key.has_value(), options.limit.has_value()
+        spec.logical_name, options.after_key.has_value(), options.limit.has_value()
     );
 
     detail::Statement statement{connection_->get(), sql};
     auto index = 1;
-    statement.bind_int64(index++, collection);
     statement.bind_int64(index++, version);
     if (options.after_key)
     {
@@ -351,13 +353,13 @@ QueryMetadataResult SqliteSession::list_current_metadata(
 {
     require_backend_tx();
 
+    auto spec = load_collection_spec(*connection_, collection);
     auto sql = detail::PrivateSchemaSql::select_current_metadata_list(
-        options.after_key.has_value(), options.limit.has_value()
+        spec.logical_name, options.after_key.has_value(), options.limit.has_value()
     );
 
     detail::Statement statement{connection_->get(), sql};
     auto index = 1;
-    statement.bind_int64(index++, collection);
     if (options.after_key)
     {
         statement.bind_text(index++, *options.after_key);
@@ -392,19 +394,21 @@ void SqliteSession::insert_history(
 {
     require_backend_tx();
 
-    detail::Statement statement{connection_->get(), detail::PrivateSchemaSql::insert_history()};
-    statement.bind_int64(1, collection);
-    statement.bind_text(2, write.key);
-    statement.bind_int64(3, commit_version);
-    statement.bind_int64(4, write_is_deleted(write) ? 1 : 0);
-    statement.bind_text(5, hash_to_text(write.value_hash));
+    auto spec = load_collection_spec(*connection_, collection);
+    detail::Statement statement{
+        connection_->get(), detail::PrivateSchemaSql::insert_user_row(spec.logical_name, false)
+    };
+    statement.bind_text(1, write.key);
+    statement.bind_int64(2, commit_version);
+    statement.bind_int64(3, write_is_deleted(write) ? 1 : 0);
+    statement.bind_text(4, hash_to_text(write.value_hash));
     if (write_is_deleted(write))
     {
-        statement.bind_null(6);
+        statement.bind_null(5);
     }
     else
     {
-        statement.bind_text(6, write_value_text(write));
+        statement.bind_text(5, write_value_text(write));
     }
     statement.step();
 }
@@ -418,19 +422,29 @@ void SqliteSession::upsert_current(
     require_backend_tx();
     check_unique_constraints(*connection_, collection, write);
 
-    detail::Statement statement{connection_->get(), detail::PrivateSchemaSql::upsert_current()};
-    statement.bind_int64(1, collection);
-    statement.bind_text(2, write.key);
-    statement.bind_int64(3, commit_version);
-    statement.bind_int64(4, write_is_deleted(write) ? 1 : 0);
-    statement.bind_text(5, hash_to_text(write.value_hash));
+    auto spec = load_collection_spec(*connection_, collection);
+    {
+        detail::Statement clear_current{
+            connection_->get(), detail::PrivateSchemaSql::clear_current_row(spec.logical_name)
+        };
+        clear_current.bind_text(1, write.key);
+        clear_current.step();
+    }
+
+    detail::Statement statement{
+        connection_->get(), detail::PrivateSchemaSql::insert_user_row(spec.logical_name, true)
+    };
+    statement.bind_text(1, write.key);
+    statement.bind_int64(2, commit_version);
+    statement.bind_int64(3, write_is_deleted(write) ? 1 : 0);
+    statement.bind_text(4, hash_to_text(write.value_hash));
     if (write_is_deleted(write))
     {
-        statement.bind_null(6);
+        statement.bind_null(5);
     }
     else
     {
-        statement.bind_text(6, write_value_text(write));
+        statement.bind_text(5, write_value_text(write));
     }
     statement.step();
 }

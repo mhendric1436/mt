@@ -69,6 +69,26 @@ inline std::string quote_identifier(std::string_view identifier)
     return quoted;
 }
 
+inline std::string quote_sql_string(std::string_view value)
+{
+    std::string quoted;
+    quoted.reserve(value.size() + 2);
+    quoted.push_back('\'');
+    for (auto ch : value)
+    {
+        if (ch == '\'')
+        {
+            quoted += "''";
+        }
+        else
+        {
+            quoted.push_back(ch);
+        }
+    }
+    quoted.push_back('\'');
+    return quoted;
+}
+
 inline std::string physical_current_key_index_name(std::string_view logical_name)
 {
     return physical_user_table_name(logical_name) + "_current_key_idx";
@@ -419,51 +439,40 @@ struct PrivateSchemaSql
                ")";
     }
 
-    static std::string create_history_table()
+    static std::string create_user_table(std::string_view logical_name)
     {
-        return "CREATE TABLE IF NOT EXISTS mt_history ("
-               "collection_id INTEGER NOT NULL,"
+        auto table = quote_identifier(physical_user_table_name(logical_name));
+        return "CREATE TABLE IF NOT EXISTS " + table +
+               " ("
                "document_key TEXT NOT NULL,"
                "version INTEGER NOT NULL,"
+               "is_current INTEGER NOT NULL,"
                "deleted INTEGER NOT NULL,"
                "value_hash TEXT NOT NULL,"
                "value_json TEXT,"
-               "PRIMARY KEY (collection_id, document_key, version),"
-               "FOREIGN KEY (collection_id) REFERENCES mt_collections(id)"
+               "PRIMARY KEY (document_key, version)"
                ")";
     }
 
-    static std::string create_history_snapshot_index()
+    static std::string create_current_key_index(std::string_view logical_name)
     {
-        return "CREATE INDEX IF NOT EXISTS mt_history_snapshot_idx "
-               "ON mt_history (collection_id, document_key, version)";
+        auto index = quote_identifier(physical_current_key_index_name(logical_name));
+        auto table = quote_identifier(physical_user_table_name(logical_name));
+        return "CREATE UNIQUE INDEX IF NOT EXISTS " + index + " ON " + table +
+               " (document_key) WHERE is_current = 1";
     }
 
-    static std::string create_current_table()
+    static std::string create_json_index(
+        std::string_view logical_name,
+        const IndexSpec& index
+    )
     {
-        return "CREATE TABLE IF NOT EXISTS mt_current ("
-               "collection_id INTEGER NOT NULL,"
-               "document_key TEXT NOT NULL,"
-               "version INTEGER NOT NULL,"
-               "deleted INTEGER NOT NULL,"
-               "value_hash TEXT NOT NULL,"
-               "value_json TEXT,"
-               "PRIMARY KEY (collection_id, document_key),"
-               "FOREIGN KEY (collection_id) REFERENCES mt_collections(id)"
-               ")";
-    }
-
-    static std::string create_unique_index_values_table()
-    {
-        return "CREATE TABLE IF NOT EXISTS mt_unique_index_values ("
-               "collection_id INTEGER NOT NULL,"
-               "index_name TEXT NOT NULL,"
-               "encoded_value TEXT NOT NULL,"
-               "document_key TEXT NOT NULL,"
-               "PRIMARY KEY (collection_id, index_name, document_key),"
-               "UNIQUE (collection_id, index_name, encoded_value),"
-               "FOREIGN KEY (collection_id) REFERENCES mt_collections(id)"
-               ")";
+        auto index_name = quote_identifier(physical_json_index_name(logical_name, index));
+        auto table = quote_identifier(physical_user_table_name(logical_name));
+        auto unique = index.unique ? std::string("UNIQUE ") : std::string{};
+        return "CREATE " + unique + "INDEX IF NOT EXISTS " + index_name + " ON " + table +
+               " (json_extract(value_json, " + quote_sql_string(index.json_path) +
+               ")) WHERE is_current = 1 AND deleted = 0";
     }
 
     static std::string select_collection_spec_by_logical_name()
@@ -503,41 +512,20 @@ struct PrivateSchemaSql
         return "SELECT indexes_json FROM mt_collections WHERE id = ?";
     }
 
-    static std::string select_current_unique_index_candidates()
+    static std::string select_current_unique_index_candidates(std::string_view logical_name)
     {
+        auto table = quote_identifier(physical_user_table_name(logical_name));
         return "SELECT document_key, value_json "
-               "FROM mt_current "
-               "WHERE collection_id = ? AND deleted = 0 AND document_key <> ?";
+               "FROM " +
+               table + " WHERE is_current = 1 AND deleted = 0 AND document_key <> ?";
     }
 
-    static std::string delete_unique_index_values_for_key()
+    static std::string select_current_documents_for_index_rebuild(std::string_view logical_name)
     {
-        return "DELETE FROM mt_unique_index_values "
-               "WHERE collection_id = ? AND document_key = ?";
-    }
-
-    static std::string insert_unique_index_value()
-    {
-        return "INSERT INTO mt_unique_index_values "
-               "(collection_id, index_name, encoded_value, document_key) "
-               "VALUES (?, ?, ?, ?)";
-    }
-
-    static std::string select_unique_index_conflict()
-    {
-        return "SELECT document_key "
-               "FROM mt_unique_index_values "
-               "WHERE collection_id = ? AND index_name = ? AND encoded_value = ? "
-               "AND document_key <> ? "
-               "LIMIT 1";
-    }
-
-    static std::string select_current_documents_for_index_rebuild()
-    {
+        auto table = quote_identifier(physical_user_table_name(logical_name));
         return "SELECT document_key, value_json "
-               "FROM mt_current "
-               "WHERE collection_id = ? AND deleted = 0 "
-               "ORDER BY document_key";
+               "FROM " +
+               table + " WHERE is_current = 1 AND deleted = 0 ORDER BY document_key";
     }
 
     static std::string select_clock_version()
@@ -571,28 +559,30 @@ struct PrivateSchemaSql
         return "DELETE FROM mt_active_transactions WHERE tx_id = ?";
     }
 
-    static std::string select_snapshot_document()
+    static std::string select_snapshot_document(std::string_view logical_name)
     {
+        auto table = quote_identifier(physical_user_table_name(logical_name));
         return "SELECT version, deleted, value_hash, value_json "
-               "FROM mt_history "
-               "WHERE collection_id = ? AND document_key = ? AND version <= ? "
-               "ORDER BY version DESC LIMIT 1";
+               "FROM " +
+               table + " WHERE document_key = ? AND version <= ? ORDER BY version DESC LIMIT 1";
     }
 
-    static std::string select_current_metadata()
+    static std::string select_current_metadata(std::string_view logical_name)
     {
+        auto table = quote_identifier(physical_user_table_name(logical_name));
         return "SELECT version, deleted, value_hash "
-               "FROM mt_current "
-               "WHERE collection_id = ? AND document_key = ?";
+               "FROM " +
+               table + " WHERE document_key = ? AND is_current = 1";
     }
 
-    static std::string select_current_query_candidates(bool has_after_key)
+    static std::string select_current_query_candidates(
+        std::string_view logical_name,
+        bool has_after_key
+    )
     {
-        auto sql = std::string(
-            "SELECT document_key, version, deleted, value_hash, value_json "
-            "FROM mt_current "
-            "WHERE collection_id = ? "
-        );
+        auto table = quote_identifier(physical_user_table_name(logical_name));
+        auto sql = "SELECT document_key, version, deleted, value_hash, value_json FROM " + table +
+                   " WHERE is_current = 1 ";
         if (has_after_key)
         {
             sql += "AND document_key > ? ";
@@ -602,22 +592,24 @@ struct PrivateSchemaSql
     }
 
     static std::string select_snapshot_list(
+        std::string_view logical_name,
         bool has_after_key,
         bool has_limit
     )
     {
-        auto sql = std::string(
-            "SELECT h.document_key, h.version, h.deleted, h.value_hash, h.value_json "
-            "FROM mt_history h "
-            "WHERE h.collection_id = ? "
-            "AND h.version = ("
-            "SELECT MAX(h2.version) FROM mt_history h2 "
-            "WHERE h2.collection_id = h.collection_id "
-            "AND h2.document_key = h.document_key "
-            "AND h2.version <= ?"
-            ") "
-            "AND h.deleted = 0 "
-        );
+        auto table = quote_identifier(physical_user_table_name(logical_name));
+        auto sql = "SELECT h.document_key, h.version, h.deleted, h.value_hash, h.value_json "
+                   "FROM " +
+                   table +
+                   " h "
+                   "WHERE h.version = ("
+                   "SELECT MAX(h2.version) FROM " +
+                   table +
+                   " h2 "
+                   "WHERE h2.document_key = h.document_key "
+                   "AND h2.version <= ?"
+                   ") "
+                   "AND h.deleted = 0 ";
         if (has_after_key)
         {
             sql += "AND h.document_key > ? ";
@@ -631,15 +623,14 @@ struct PrivateSchemaSql
     }
 
     static std::string select_current_metadata_list(
+        std::string_view logical_name,
         bool has_after_key,
         bool has_limit
     )
     {
-        auto sql = std::string(
-            "SELECT document_key, version, deleted, value_hash "
-            "FROM mt_current "
-            "WHERE collection_id = ? "
-        );
+        auto table = quote_identifier(physical_user_table_name(logical_name));
+        auto sql = "SELECT document_key, version, deleted, value_hash FROM " + table +
+                   " WHERE is_current = 1 ";
         if (has_after_key)
         {
             sql += "AND document_key > ? ";
@@ -652,23 +643,28 @@ struct PrivateSchemaSql
         return sql;
     }
 
-    static std::string insert_history()
+    static std::string insert_user_row(
+        std::string_view logical_name,
+        bool is_current
+    )
     {
-        return "INSERT INTO mt_history "
-               "(collection_id, document_key, version, deleted, value_hash, value_json) "
-               "VALUES (?, ?, ?, ?, ?, ?)";
-    }
-
-    static std::string upsert_current()
-    {
-        return "INSERT INTO mt_current "
-               "(collection_id, document_key, version, deleted, value_hash, value_json) "
-               "VALUES (?, ?, ?, ?, ?, ?) "
-               "ON CONFLICT(collection_id, document_key) DO UPDATE SET "
-               "version = excluded.version, "
+        auto table = quote_identifier(physical_user_table_name(logical_name));
+        return "INSERT INTO " + table +
+               " (document_key, version, is_current, deleted, value_hash, value_json) "
+               "VALUES (?, ?, " +
+               std::string(is_current ? "1" : "0") +
+               ", ?, ?, ?) "
+               "ON CONFLICT(document_key, version) DO UPDATE SET "
+               "is_current = excluded.is_current, "
                "deleted = excluded.deleted, "
                "value_hash = excluded.value_hash, "
                "value_json = excluded.value_json";
+    }
+
+    static std::string clear_current_row(std::string_view logical_name)
+    {
+        auto table = quote_identifier(physical_user_table_name(logical_name));
+        return "UPDATE " + table + " SET is_current = 0 WHERE document_key = ? AND is_current = 1";
     }
 
     static std::string count_private_tables()
@@ -677,8 +673,7 @@ struct PrivateSchemaSql
                "WHERE type = 'table' "
                "AND name IN ("
                "'mt_meta', 'mt_clock', 'mt_collections', "
-               "'mt_active_transactions', 'mt_history', 'mt_current', "
-               "'mt_unique_index_values')";
+               "'mt_active_transactions')";
     }
 
     static std::string select_metadata_schema_version()
@@ -696,21 +691,25 @@ struct PrivateSchemaSql
         return "SELECT COUNT(*) FROM mt_active_transactions";
     }
 
-    static std::string select_history_row_by_collection_key()
+    static std::string select_user_row_by_key(
+        std::string_view logical_name,
+        bool only_current = false
+    )
     {
-        return "SELECT version, deleted, value_hash, value_json FROM mt_history "
-               "WHERE collection_id = ? AND document_key = ?";
+        auto table = quote_identifier(physical_user_table_name(logical_name));
+        auto sql = "SELECT version, deleted, value_hash, value_json, is_current FROM " + table +
+                   " WHERE document_key = ?";
+        if (only_current)
+        {
+            sql += " AND is_current = 1";
+        }
+        sql += " ORDER BY version";
+        return sql;
     }
 
-    static std::string select_current_row_by_collection_key()
+    static std::string count_user_rows(std::string_view logical_name)
     {
-        return "SELECT version, deleted, value_hash, value_json FROM mt_current "
-               "WHERE collection_id = ? AND document_key = ?";
-    }
-
-    static std::string count_history_rows()
-    {
-        return "SELECT COUNT(*) FROM mt_history";
+        return "SELECT COUNT(*) FROM " + quote_identifier(physical_user_table_name(logical_name));
     }
 };
 

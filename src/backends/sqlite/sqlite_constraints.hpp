@@ -14,12 +14,6 @@ void check_unique_constraints(
     const WriteEnvelope& write
 );
 
-void maintain_unique_index_values(
-    detail::Connection& connection,
-    CollectionId collection,
-    const WriteEnvelope& write
-);
-
 void validate_sqlite_index_update(
     const CollectionSpec& existing,
     const CollectionSpec& requested
@@ -27,7 +21,6 @@ void validate_sqlite_index_update(
 
 void rebuild_added_unique_indexes(
     detail::Connection& connection,
-    CollectionId collection,
     const CollectionSpec& existing,
     const CollectionSpec& requested
 );

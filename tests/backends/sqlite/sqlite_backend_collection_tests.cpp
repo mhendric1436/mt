@@ -2,16 +2,16 @@
 
 namespace
 {
-std::int64_t count_collection_unique_index_entries(
-    const std::filesystem::path& path,
-    mt::CollectionId collection
-)
+std::int64_t count_collection_unique_index_entries(const std::filesystem::path& path)
 {
     auto connection = mt::backends::sqlite::detail::Connection::open(path.string());
+    auto spec = sqlite_user_schema();
     mt::backends::sqlite::detail::Statement count{
-        connection.get(), "SELECT COUNT(*) FROM mt_unique_index_values WHERE collection_id = ?"
+        connection.get(), "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?"
     };
-    count.bind_int64(1, collection);
+    count.bind_text(
+        1, mt::backends::sqlite::detail::physical_json_index_name("users", spec.indexes.front())
+    );
     EXPECT_TRUE(count.step());
     return count.column_int64(0);
 }
@@ -105,13 +105,13 @@ void test_sqlite_backend_rebuilds_added_unique_index()
         session->upsert_current(descriptor.id, second, 2);
         session->commit_backend_transaction();
     }
-    EXPECT_EQ(count_collection_unique_index_entries(path, descriptor.id), std::int64_t{0});
+    EXPECT_EQ(count_collection_unique_index_entries(path), std::int64_t{0});
 
     auto updated = sqlite_user_schema(2);
     auto rebuilt = backend.ensure_collection(updated);
 
     EXPECT_EQ(rebuilt.id, descriptor.id);
-    EXPECT_EQ(count_collection_unique_index_entries(path, descriptor.id), std::int64_t{2});
+    EXPECT_EQ(count_collection_unique_index_entries(path), std::int64_t{1});
 
     std::filesystem::remove(path);
 }
@@ -149,7 +149,7 @@ void test_sqlite_backend_rejects_added_unique_index_with_existing_duplicates()
     auto updated = sqlite_user_schema(2);
 
     EXPECT_THROW_AS(backend.ensure_collection(updated), mt::BackendError);
-    EXPECT_EQ(count_collection_unique_index_entries(path, descriptor.id), std::int64_t{0});
+    EXPECT_EQ(count_collection_unique_index_entries(path), std::int64_t{0});
 
     std::filesystem::remove(path);
 }

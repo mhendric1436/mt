@@ -73,6 +73,7 @@ CollectionDescriptor SqliteBackend::ensure_collection(const CollectionSpec& spec
         if (!stored)
         {
             insert_collection(connection, spec);
+            create_user_storage(connection, spec);
             auto descriptor = load_collection_descriptor(connection, spec.logical_name);
             connection.execute(detail::PrivateSchemaSql::commit());
             return descriptor;
@@ -89,8 +90,7 @@ CollectionDescriptor SqliteBackend::ensure_collection(const CollectionSpec& spec
         }
 
         validate_sqlite_index_update(*stored, spec);
-        auto existing_descriptor = load_collection_descriptor(connection, spec.logical_name);
-        rebuild_added_unique_indexes(connection, existing_descriptor.id, *stored, spec);
+        rebuild_added_unique_indexes(connection, *stored, spec);
         update_collection(connection, spec);
         auto descriptor = load_collection_descriptor(connection, spec.logical_name);
         connection.execute(detail::PrivateSchemaSql::commit());

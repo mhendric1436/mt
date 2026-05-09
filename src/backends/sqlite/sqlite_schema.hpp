@@ -37,6 +37,11 @@ void update_collection(
     const CollectionSpec& spec
 );
 
+void create_user_storage(
+    detail::Connection& connection,
+    const CollectionSpec& spec
+);
+
 std::vector<IndexSpec> load_collection_indexes(
     detail::Connection& connection,
     CollectionId collection

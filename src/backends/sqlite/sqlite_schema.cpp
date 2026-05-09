@@ -93,6 +93,19 @@ void insert_collection(
     statement.step();
 }
 
+void create_user_storage(
+    detail::Connection& connection,
+    const CollectionSpec& spec
+)
+{
+    connection.execute(detail::PrivateSchemaSql::create_user_table(spec.logical_name));
+    connection.execute(detail::PrivateSchemaSql::create_current_key_index(spec.logical_name));
+    for (const auto& index : spec.indexes)
+    {
+        connection.execute(detail::PrivateSchemaSql::create_json_index(spec.logical_name, index));
+    }
+}
+
 void update_collection(
     detail::Connection& connection,
     const CollectionSpec& spec

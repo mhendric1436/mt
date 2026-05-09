@@ -4,19 +4,16 @@ namespace
 {
 std::int64_t count_unique_index_entries(
     const std::filesystem::path& path,
-    mt::CollectionId collection,
-    std::string_view index_name,
-    std::string_view encoded_value
+    std::string_view email
 )
 {
     auto connection = mt::backends::sqlite::detail::Connection::open(path.string());
     mt::backends::sqlite::detail::Statement count{
-        connection.get(), "SELECT COUNT(*) FROM mt_unique_index_values "
-                          "WHERE collection_id = ? AND index_name = ? AND encoded_value = ?"
+        connection.get(),
+        "SELECT COUNT(*) FROM \"mt_user_users\" "
+        "WHERE is_current = 1 AND deleted = 0 AND json_extract(value_json, '$.email') = ?"
     };
-    count.bind_int64(1, collection);
-    count.bind_text(2, index_name);
-    count.bind_text(3, encoded_value);
+    count.bind_text(1, email);
     EXPECT_TRUE(count.step());
     return count.column_int64(0);
 }
@@ -47,10 +44,9 @@ void test_sqlite_backend_document_writes_insert_history_and_current()
     auto connection = mt::backends::sqlite::detail::Connection::open(path.string());
     mt::backends::sqlite::detail::Statement history{
         connection.get(),
-        mt::backends::sqlite::detail::PrivateSchemaSql::select_history_row_by_collection_key()
+        mt::backends::sqlite::detail::PrivateSchemaSql::select_user_row_by_key("users")
     };
-    history.bind_int64(1, descriptor.id);
-    history.bind_text(2, "user:1");
+    history.bind_text(1, "user:1");
     EXPECT_TRUE(history.step());
     EXPECT_EQ(history.column_int64(0), std::int64_t{7});
     EXPECT_EQ(history.column_int64(1), std::int64_t{0});
@@ -61,10 +57,9 @@ void test_sqlite_backend_document_writes_insert_history_and_current()
 
     mt::backends::sqlite::detail::Statement current{
         connection.get(),
-        mt::backends::sqlite::detail::PrivateSchemaSql::select_current_row_by_collection_key()
+        mt::backends::sqlite::detail::PrivateSchemaSql::select_user_row_by_key("users", true)
     };
-    current.bind_int64(1, descriptor.id);
-    current.bind_text(2, "user:1");
+    current.bind_text(1, "user:1");
     EXPECT_TRUE(current.step());
     EXPECT_EQ(current.column_int64(0), std::int64_t{7});
     EXPECT_EQ(current.column_int64(1), std::int64_t{0});
@@ -72,10 +67,7 @@ void test_sqlite_backend_document_writes_insert_history_and_current()
     EXPECT_EQ(
         current.column_text(3), sqlite_user_json("user:1", "a@example.com").canonical_string()
     );
-    EXPECT_EQ(
-        count_unique_index_entries(path, descriptor.id, "email", "s:\"a@example.com\""),
-        std::int64_t{1}
-    );
+    EXPECT_EQ(count_unique_index_entries(path, "a@example.com"), std::int64_t{1});
 
     std::filesystem::remove(path);
 }
@@ -104,10 +96,9 @@ void test_sqlite_backend_document_writes_store_delete_tombstone()
     auto connection = mt::backends::sqlite::detail::Connection::open(path.string());
     mt::backends::sqlite::detail::Statement current{
         connection.get(),
-        mt::backends::sqlite::detail::PrivateSchemaSql::select_current_row_by_collection_key()
+        mt::backends::sqlite::detail::PrivateSchemaSql::select_user_row_by_key("users", true)
     };
-    current.bind_int64(1, descriptor.id);
-    current.bind_text(2, "user:1");
+    current.bind_text(1, "user:1");
     EXPECT_TRUE(current.step());
     EXPECT_EQ(current.column_int64(0), std::int64_t{8});
     EXPECT_EQ(current.column_int64(1), std::int64_t{1});
@@ -141,7 +132,7 @@ void test_sqlite_backend_document_writes_rollback_on_abort()
 
     auto connection = mt::backends::sqlite::detail::Connection::open(path.string());
     mt::backends::sqlite::detail::Statement count{
-        connection.get(), mt::backends::sqlite::detail::PrivateSchemaSql::count_history_rows()
+        connection.get(), mt::backends::sqlite::detail::PrivateSchemaSql::count_user_rows("users")
     };
     EXPECT_TRUE(count.step());
     EXPECT_EQ(count.column_int64(0), std::int64_t{0});
@@ -563,24 +554,15 @@ void test_sqlite_backend_updates_and_deletes_unique_index_entries()
     session->upsert_current(descriptor.id, updated, 2);
     session->commit_backend_transaction();
 
-    EXPECT_EQ(
-        count_unique_index_entries(path, descriptor.id, "email", "s:\"old@example.com\""),
-        std::int64_t{0}
-    );
-    EXPECT_EQ(
-        count_unique_index_entries(path, descriptor.id, "email", "s:\"new@example.com\""),
-        std::int64_t{1}
-    );
+    EXPECT_EQ(count_unique_index_entries(path, "old@example.com"), std::int64_t{0});
+    EXPECT_EQ(count_unique_index_entries(path, "new@example.com"), std::int64_t{1});
 
     session = backend.open_session();
     session->begin_backend_transaction();
     session->upsert_current(descriptor.id, deleted, 3);
     session->commit_backend_transaction();
 
-    EXPECT_EQ(
-        count_unique_index_entries(path, descriptor.id, "email", "s:\"new@example.com\""),
-        std::int64_t{0}
-    );
+    EXPECT_EQ(count_unique_index_entries(path, "new@example.com"), std::int64_t{0});
 
     std::filesystem::remove(path);
 }
