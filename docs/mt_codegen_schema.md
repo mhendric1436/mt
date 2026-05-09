@@ -8,8 +8,9 @@ JSON Schema Draft 2020-12 in:
 schemas/mt-codegen.schema.json
 ```
 
-The generator remains the source of semantic validation. The JSON Schema is intended for
-editor integration, CI checks, and early feedback before invoking the generator.
+`tools/mt_codegen.py` validates input metadata against this schema before running its
+semantic validation. The same schema can also be used for editor integration and CI
+checks outside the generator.
 
 ## Dialect
 

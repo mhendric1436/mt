@@ -10,10 +10,18 @@ from pathlib import Path
 
 IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 SUPPORTED_TYPES = {"string", "bool", "int64", "double"}
+CODEGEN_SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schemas" / "mt-codegen.schema.json"
 
 
 class SchemaError(Exception):
     pass
+
+
+class JsonSchemaValidationError(Exception):
+    def __init__(self, path, message):
+        super().__init__(message)
+        self.path = path
+        self.message = message
 
 
 @dataclass(frozen=True)
@@ -55,6 +63,202 @@ class CompositeKey:
 
 def fail(message):
     raise SchemaError(message)
+
+
+def load_codegen_json_schema():
+    with CODEGEN_SCHEMA_PATH.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def json_schema_context(path):
+    if not path or path == "schema":
+        return "schema"
+    return path
+
+
+def json_schema_fail(path, message):
+    raise JsonSchemaValidationError(json_schema_context(path), message)
+
+
+def json_schema_child_path(path, key):
+    if isinstance(key, int):
+        return f"{path}[{key}]"
+    if path == "schema":
+        return key
+    return f"{path}.{key}"
+
+
+def json_schema_type_name(value):
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, float):
+        return "number"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    return type(value).__name__
+
+
+def json_schema_type_matches(value, expected):
+    if expected == "null":
+        return value is None
+    if expected == "boolean":
+        return isinstance(value, bool)
+    if expected == "string":
+        return isinstance(value, str)
+    if expected == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if expected == "array":
+        return isinstance(value, list)
+    if expected == "object":
+        return isinstance(value, dict)
+    return False
+
+
+def resolve_json_schema_ref(root_schema, ref):
+    if not ref.startswith("#/"):
+        json_schema_fail("schema", f"unsupported JSON Schema reference {ref!r}")
+
+    value = root_schema
+    for raw_segment in ref[2:].split("/"):
+        segment = raw_segment.replace("~1", "/").replace("~0", "~")
+        try:
+            value = value[segment]
+        except (KeyError, TypeError):
+            json_schema_fail("schema", f"unresolved JSON Schema reference {ref!r}")
+    return value
+
+
+def validate_json_schema(instance, schema, root_schema=None, path="schema"):
+    if root_schema is None:
+        root_schema = schema
+
+    if schema is True:
+        return
+    if schema is False:
+        json_schema_fail(path, "is not allowed")
+
+    if "$ref" in schema:
+        validate_json_schema(instance, resolve_json_schema_ref(root_schema, schema["$ref"]), root_schema, path)
+
+    if "type" in schema:
+        expected = schema["type"]
+        expected_types = expected if isinstance(expected, list) else [expected]
+        if not any(json_schema_type_matches(instance, item) for item in expected_types):
+            names = ", ".join(expected_types)
+            json_schema_fail(path, f"must be of type {names}, got {json_schema_type_name(instance)}")
+
+    if "enum" in schema and instance not in schema["enum"]:
+        allowed = ", ".join(repr(item) for item in schema["enum"])
+        json_schema_fail(path, f"must be one of {allowed}")
+
+    if "const" in schema and instance != schema["const"]:
+        json_schema_fail(path, f"must be {schema['const']!r}")
+
+    if isinstance(instance, dict):
+        for key in schema.get("required", []):
+            if key not in instance:
+                if path == "schema":
+                    json_schema_fail(path, f"missing required field: {key}")
+                json_schema_fail(path, f"missing required property {key!r}")
+
+        for key, property_schema in schema.get("properties", {}).items():
+            if key in instance:
+                validate_json_schema(
+                    instance[key], property_schema, root_schema, json_schema_child_path(path, key)
+                )
+
+    if isinstance(instance, str):
+        if "minLength" in schema and len(instance) < schema["minLength"]:
+            json_schema_fail(path, f"must be at least {schema['minLength']} characters")
+        if "pattern" in schema and re.search(schema["pattern"], instance) is None:
+            json_schema_fail(path, f"must match pattern {schema['pattern']!r}")
+
+    if isinstance(instance, int) and not isinstance(instance, bool):
+        if "minimum" in schema and instance < schema["minimum"]:
+            json_schema_fail(path, f"must be greater than or equal to {schema['minimum']}")
+
+    if isinstance(instance, list):
+        if "minItems" in schema and len(instance) < schema["minItems"]:
+            json_schema_fail(path, f"must contain at least {schema['minItems']} items")
+        if schema.get("uniqueItems", False):
+            seen = set()
+            for item in instance:
+                marker = json.dumps(item, sort_keys=True)
+                if marker in seen:
+                    json_schema_fail(path, "must contain unique items")
+                seen.add(marker)
+        if "items" in schema:
+            for index, item in enumerate(instance):
+                validate_json_schema(item, schema["items"], root_schema, json_schema_child_path(path, index))
+
+    for subschema in schema.get("allOf", []):
+        validate_json_schema(instance, subschema, root_schema, path)
+
+    if "anyOf" in schema:
+        for subschema in schema["anyOf"]:
+            try:
+                validate_json_schema(instance, subschema, root_schema, path)
+                break
+            except JsonSchemaValidationError:
+                pass
+        else:
+            json_schema_fail(path, "must match at least one allowed schema")
+
+    if "oneOf" in schema:
+        matches = 0
+        first_error = None
+        for subschema in schema["oneOf"]:
+            try:
+                validate_json_schema(instance, subschema, root_schema, path)
+                matches += 1
+            except JsonSchemaValidationError as exc:
+                if first_error is None:
+                    first_error = exc
+        if matches != 1:
+            if matches == 0 and first_error is not None:
+                raise first_error
+            json_schema_fail(path, "must match exactly one allowed schema")
+
+    if "not" in schema:
+        try:
+            validate_json_schema(instance, schema["not"], root_schema, path)
+        except JsonSchemaValidationError:
+            pass
+        else:
+            json_schema_fail(path, "must not match a disallowed schema")
+
+    if "if" in schema:
+        try:
+            validate_json_schema(instance, schema["if"], root_schema, path)
+            condition_matches = True
+        except JsonSchemaValidationError:
+            condition_matches = False
+        if condition_matches and "then" in schema:
+            validate_json_schema(instance, schema["then"], root_schema, path)
+
+
+def validate_codegen_json_schema(schema):
+    try:
+        validate_json_schema(schema, load_codegen_json_schema())
+    except JsonSchemaValidationError as exc:
+        if exc.path == "schema":
+            fail(exc.message)
+        fail(f"{exc.path}: {exc.message}")
+
+
+def validate_codegen_input(schema):
+    validate_codegen_json_schema(schema)
+    return validate_schema(schema)
 
 
 def require_object(value, context):
@@ -862,7 +1066,7 @@ def main():
     try:
         with args.schema.open("r", encoding="utf-8") as f:
             raw_schema = json.load(f)
-        schema = validate_schema(raw_schema)
+        schema = validate_codegen_input(raw_schema)
         output = render(schema)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(output, encoding="utf-8")

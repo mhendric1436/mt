@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import copy
+import json
 import subprocess
 import sys
 import tempfile
@@ -32,6 +33,39 @@ class SchemaValidationTests(unittest.TestCase):
         with self.assertRaises(mt_codegen.SchemaError) as raised:
             mt_codegen.validate_schema(schema)
         self.assertIn(expected, str(raised.exception))
+
+    def assert_codegen_input_error(self, schema, expected):
+        with self.assertRaises(mt_codegen.SchemaError) as raised:
+            mt_codegen.validate_codegen_input(schema)
+        self.assertIn(expected, str(raised.exception))
+
+    def test_codegen_input_validates_against_json_schema_file(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["class_name"] = "User-Row"
+
+        self.assert_codegen_input_error(
+            schema,
+            "class_name: must match pattern '^[A-Za-z_][A-Za-z0-9_]*$'",
+        )
+
+    def test_codegen_input_rejects_json_schema_field_shape_errors(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["fields"].append({"name": "tags", "type": "array"})
+
+        self.assert_codegen_input_error(schema, "fields[3]: missing required property 'value_type'")
+
+    def test_codegen_input_still_runs_semantic_validation(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["key"] = "missing"
+
+        self.assert_codegen_input_error(schema, "key field 'missing' does not exist")
+
+    def test_example_schemas_validate_against_json_schema_file(self):
+        root = Path(__file__).resolve().parents[1]
+        for path in (root / "examples" / "schemas").glob("*.mt.json"):
+            with self.subTest(path=path.name):
+                with path.open("r", encoding="utf-8") as f:
+                    mt_codegen.validate_codegen_json_schema(json.load(f))
 
     def test_valid_schema_passes(self):
         validated = mt_codegen.validate_schema(copy.deepcopy(VALID_SCHEMA))

@@ -91,6 +91,7 @@ POSTGRES_TEST_HEADERS := $(wildcard tests/backends/postgres/*.hpp)
 HEADER_CHECK_SRC := src/mt_core.cpp
 CODEGEN := python3 tools/mt_codegen.py
 CODEGEN_VALIDATION_TEST := python3 tools/test_mt_codegen.py
+CODEGEN_SCHEMA := schemas/mt-codegen.schema.json
 EXAMPLE_SCHEMA := examples/schemas/user.mt.json
 GENERATED_EXAMPLE_HEADER := $(GENERATED_DIR)/user.hpp
 COMPOSITE_KEY_EXAMPLE_SCHEMA := examples/schemas/order.mt.json
@@ -115,10 +116,10 @@ $(TEST_BIN): $(TEST_SRC) $(CORE_HEADERS) | $(BUILD_STAMP)
 $(GENERATED_DIR): | $(BUILD_STAMP)
 	mkdir -p $(GENERATED_DIR)
 
-$(GENERATED_EXAMPLE_HEADER): $(EXAMPLE_SCHEMA) tools/mt_codegen.py | $(GENERATED_DIR)
+$(GENERATED_EXAMPLE_HEADER): $(EXAMPLE_SCHEMA) tools/mt_codegen.py $(CODEGEN_SCHEMA) | $(GENERATED_DIR)
 	$(CODEGEN) $(EXAMPLE_SCHEMA) -o $@
 
-$(GENERATED_COMPOSITE_KEY_EXAMPLE_HEADER): $(COMPOSITE_KEY_EXAMPLE_SCHEMA) tools/mt_codegen.py | $(GENERATED_DIR)
+$(GENERATED_COMPOSITE_KEY_EXAMPLE_HEADER): $(COMPOSITE_KEY_EXAMPLE_SCHEMA) tools/mt_codegen.py $(CODEGEN_SCHEMA) | $(GENERATED_DIR)
 	$(CODEGEN) $(COMPOSITE_KEY_EXAMPLE_SCHEMA) -o $@
 
 $(CODEGEN_TEST_BIN): $(CODEGEN_TEST_SRC) $(GENERATED_EXAMPLE_HEADERS) $(CORE_HEADERS) | $(BUILD_STAMP)
@@ -211,7 +212,7 @@ postgres-configure-bash-profile:
 
 codegen-examples: $(GENERATED_EXAMPLE_HEADERS)
 
-codegen-validation:
+codegen-validation: tools/test_mt_codegen.py tools/mt_codegen.py $(CODEGEN_SCHEMA)
 	$(CODEGEN_VALIDATION_TEST)
 
 format:
