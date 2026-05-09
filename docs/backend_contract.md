@@ -178,8 +178,8 @@ preserving a direct one-to-one mapping between generated tables and backend stor
 
 Backend-private metadata tables remain separate and continue to use the `mt_*`
 namespace, such as `mt_collections`, `mt_clock`, and `mt_active_transactions`.
-Implementations may quote the physical SQL identifier when emitting SQL; the quotes are
-SQL syntax and are not part of the logical table name.
+Generated backend-owned SQL identifiers use the same plain `mt_*` naming convention as
+private metadata tables.
 
 The physical user row store should contain both current and historical row versions for
 that logical table. Backends may expose separate `insert_history()` and

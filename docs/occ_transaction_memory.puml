@@ -1,0 +1,155 @@
+@startuml occ_transaction_memory
+
+title OCC Transaction Commit - Memory Backend
+
+skinparam shadowing false
+skinparam sequenceMessageAlign center
+
+actor Application as App
+participant "TransactionProvider" as Provider
+participant "Transaction" as Tx
+participant "MemorySession" as Session
+database "MemoryState\nprocess-local" as State
+database "MemoryCollection\nrows: key -> versions[]" as Rows
+
+== Begin transaction ==
+
+App -> Provider : begin()
+Provider -> Session : begin_backend_transaction()
+Session -> Session : in_backend_tx_ = true
+
+Provider -> Session : read_clock()
+Session -> State : lock mutex\nread clock
+State --> Session : start_version
+
+Provider -> Session : create_transaction_id()
+Session -> State : lock mutex\nnext_transaction_id++
+State --> Session : "memory:N"
+
+Provider -> Session : register_active_transaction(tx_id, start_version)
+Session -> State : lock mutex\nactive_transactions.insert(tx_id)
+Provider --> App : Transaction(start_version, tx_id)
+
+== Reads and writes before commit ==
+
+App -> Tx : get(collection, key)
+Tx -> Session : read_snapshot(collection, key, start_version)
+Session -> State : lock mutex
+Session -> Rows : find key\nbest_visible_version(version <= start_version)
+Rows --> Session : DocumentEnvelope or tombstone
+Session --> Tx : snapshot result
+Tx -> Tx : record read_set[key].observed_version\n0 if absent, tombstone version if deleted
+
+App -> Tx : list/query(collection, predicate)
+Tx -> Session : list_snapshot/query_snapshot(..., start_version)
+Session -> State : lock mutex
+Session -> Rows : scan rows\nchoose best visible version per key
+Session -> Session : apply key-prefix / JSON equality filtering
+Session --> Tx : visible rows
+Tx -> Tx : record predicate_read_set\n(key, observed_version) for non-deleted rows
+Tx -> Tx : overlay pending writes for read-your-writes
+
+App -> Tx : put/erase
+Tx -> Tx : build WriteEnvelope\ncollection, key, kind, value, value_hash
+Tx -> Tx : write_set[key] = envelope
+
+== OCC validation ==
+
+App -> Tx : commit()
+Tx -> Session : lock_clock_and_read()
+Session -> State : lock mutex
+alt clock already locked
+  State --> Session : clock_locked = true
+  Session --> Tx : BackendError
+  Tx -> Session : abort_backend_transaction()
+else clock available
+  Session -> State : clock_locked = true\nowns_clock_lock_ = true
+  State --> Session : current clock
+end
+
+loop each point read
+  Tx -> Session : read_current_metadata(collection, key)
+  Session -> State : lock mutex
+  Session -> Rows : latest_version(key)
+  Rows --> Session : version/deleted/value_hash or none
+  Session --> Tx : DocumentMetadata
+  alt observed_version == 0
+    Tx -> Tx : conflict if current exists\nand current.version > start_version
+  else observed_version > 0
+    Tx -> Tx : conflict if missing\nor current.version != observed_version
+  end
+end
+
+loop each write not already in read_set
+  Tx -> Session : read_current_metadata(collection, key)
+  Session -> Rows : latest_version(key)
+  Session --> Tx : DocumentMetadata or none
+  Tx -> Tx : conflict if current exists\nand current.version > start_version
+end
+
+loop each predicate read
+  alt original operation was list
+    Tx -> Session : list_current_metadata(collection, list_options)
+  else original operation was query
+    Tx -> Session : query_current_metadata(collection, query)
+  end
+  Session -> State : lock mutex
+  Session -> Rows : scan latest_version per key
+  Session -> Session : filter current non-deleted rows
+  Session --> Tx : current metadata rows
+  Tx -> Tx : sort (collection, key, version)\ncompare to observed predicate rows
+end
+
+alt validation conflict
+  Tx -> Session : abort_backend_transaction()
+  Session -> State : clear pending rows/version\nrelease clock lock
+  Tx --> App : TransactionConflict
+end
+
+== Commit writes ==
+
+Tx -> Session : increment_clock_and_return()
+Session -> State : lock mutex
+Session -> Session : pending_commit_version = clock + 1
+Session --> Tx : commit_version
+
+loop each WriteEnvelope
+  Tx -> Session : insert_history(collection, write, commit_version)
+  Session -> State : lock mutex
+  Session -> Session : pending_rows_.push_back(MemoryVersion)
+
+  Tx -> Session : upsert_current(collection, write, commit_version)
+  Session -> State : lock mutex
+  Session -> Session : project pending writes
+  Session -> Rows : check unique indexes against projected current rows
+  Session -> Session : keep one pending row per collection/key/version
+end
+
+Tx -> Session : unregister_active_transaction(tx_id)
+Session -> State : lock mutex\nactive_transactions.erase(tx_id)
+
+Tx -> Session : commit_backend_transaction()
+Session -> State : lock mutex
+Session -> Session : project_pending_writes()
+Session -> Rows : append committed versions to rows[key]
+Session -> State : clock = pending_commit_version
+Session -> State : clock_locked = false
+Session -> Session : clear pending commit state\nin_backend_tx_ = false
+Session --> Tx : committed
+Tx --> App : success
+
+note right of Rows
+Strict OCC conflict token:
+version.
+
+value_hash is stored in metadata,
+but OCC validation does not compare it.
+end note
+
+note over State
+Memory backend durability:
+process-local only. No schemas or rows
+survive process restart.
+end note
+
+@enduml

@@ -1,0 +1,160 @@
+@startuml occ_transaction_postgres
+
+title OCC Transaction Commit - PostgreSQL Backend
+
+skinparam shadowing false
+skinparam sequenceMessageAlign center
+
+actor Application as App
+participant "TransactionProvider" as Provider
+participant "Transaction" as Tx
+participant "PostgresSession" as Session
+database "PostgreSQL connection\nBEGIN" as PG
+database "mt_clock" as Clock
+database "mt_tx_id_seq" as TxSeq
+database "mt_collections + mt_schema_snapshots" as Schema
+database "mt_active_transactions" as ActiveTx
+database "mt_user_logical_name\none table per user table" as UserRows
+
+== Begin transaction ==
+
+App -> Provider : begin()
+Provider -> Session : begin_backend_transaction()
+Session -> PG : open libpq connection
+Session -> PG : BEGIN
+
+Provider -> Session : read_clock()
+Session -> Clock : SELECT version FROM mt_clock WHERE id = 1
+Clock --> Session : start_version
+
+Provider -> Session : create_transaction_id()
+Session -> TxSeq : SELECT nextval('mt_tx_id_seq')
+TxSeq --> Session : "postgres:N"
+
+Provider -> Session : register_active_transaction(tx_id, start_version)
+Session -> ActiveTx : INSERT ... ON CONFLICT DO UPDATE
+Provider --> App : Transaction(start_version, tx_id)
+
+== Reads and writes before commit ==
+
+App -> Tx : get(collection, key)
+Tx -> Session : read_snapshot(collection, key, start_version)
+Session -> Schema : load CollectionSpec by collection id
+Schema --> Session : logical_name
+Session -> UserRows : SELECT version, deleted, value_hash, value_json::text\nWHERE document_key = $1 AND version <= $2\nORDER BY version DESC LIMIT 1
+UserRows --> Session : latest visible row or none
+Session --> Tx : DocumentEnvelope or null
+Tx -> Tx : record read_set observed_version
+
+App -> Tx : list/query(collection, predicate)
+Tx -> Session : list_snapshot/query_snapshot(..., start_version)
+Session -> Schema : load CollectionSpec
+Session -> UserRows : SELECT latest version <= start_version per key
+Session -> Session : apply key-prefix / JSON equality filtering
+alt query has usable JSON equality index
+  Session -> UserRows : SELECT current candidates using\nvalue_json ->> field = $1
+end
+Session --> Tx : visible rows
+Tx -> Tx : record predicate_read_set\n(key, observed_version)
+Tx -> Tx : overlay pending writes
+
+App -> Tx : put/erase
+Tx -> Tx : build WriteEnvelope\ncollection, key, kind, value, value_hash
+Tx -> Tx : write_set[key] = envelope
+
+== OCC validation ==
+
+App -> Tx : commit()
+Tx -> Session : lock_clock_and_read()
+Session -> Clock : SELECT version FROM mt_clock WHERE id = 1 FOR UPDATE
+note right of Clock
+The row lock serializes PostgreSQL
+commit validation and version allocation.
+end note
+Clock --> Session : current clock
+Session -> Session : clock_locked_ = true
+
+loop each point read
+  Tx -> Session : read_current_metadata(collection, key)
+  Session -> Schema : load CollectionSpec
+  Session -> UserRows : SELECT version, deleted, value_hash\nWHERE document_key = $1 AND is_current = true
+  UserRows --> Session : current metadata or none
+  Tx -> Tx : compare only version to observed_version
+end
+
+loop each write not already in read_set
+  Tx -> Session : read_current_metadata(collection, key)
+  Session -> UserRows : SELECT current metadata
+  Tx -> Tx : conflict if current.version > start_version
+end
+
+loop each predicate read
+  alt original operation was list
+    Tx -> Session : list_current_metadata(collection, list_options)
+    Session -> UserRows : SELECT current rows\nWHERE is_current = true
+  else original operation was query
+    Tx -> Session : query_current_metadata(collection, query)
+    alt usable JSON equality index
+      Session -> UserRows : SELECT current rows\nWHERE is_current = true\nAND deleted = false\nAND value_json ->> field = $1
+    else no usable index
+      Session -> UserRows : SELECT current rows\nWHERE is_current = true
+    end
+  end
+  Session --> Tx : current metadata rows
+  Tx -> Tx : compare sorted (collection, key, version)\nto observed predicate rows
+end
+
+alt validation conflict
+  Tx -> Session : abort_backend_transaction()
+  Session -> PG : ROLLBACK
+  Tx --> App : TransactionConflict
+end
+
+== Commit writes ==
+
+Tx -> Session : increment_clock_and_return()
+Session -> Clock : UPDATE mt_clock\nSET version = version + 1\nWHERE id = 1 RETURNING version
+Clock --> Session : commit_version
+
+loop each WriteEnvelope
+  Tx -> Session : insert_history(collection, write, commit_version)
+  Session -> Schema : load CollectionSpec
+  Session -> UserRows : INSERT INTO mt_user_logical_name\n(document_key, version, is_current=false, deleted, value_hash, value_json)\nON CONFLICT(document_key, version) DO UPDATE
+
+  Tx -> Session : upsert_current(collection, write, commit_version)
+  Session -> Schema : load CollectionSpec
+  alt write is Put
+    Session -> Session : validate unique indexed values\npresent and type-compatible
+    Session -> UserRows : rely on native partial unique JSON indexes\nas final conflict guard
+  end
+  Session -> UserRows : UPDATE mt_user_logical_name\nSET is_current = false\nWHERE document_key = $1 AND is_current = true
+  Session -> UserRows : INSERT INTO mt_user_logical_name\n(document_key, version, is_current=true, deleted, value_hash, value_json)\nON CONFLICT(document_key, version) DO UPDATE
+end
+
+Tx -> Session : unregister_active_transaction(tx_id)
+Session -> ActiveTx : DELETE FROM mt_active_transactions WHERE tx_id = $1
+
+Tx -> Session : commit_backend_transaction()
+Session -> PG : COMMIT
+Session -> Session : reset connection and clock flag
+Session --> Tx : committed
+Tx --> App : success
+
+note right of UserRows
+Physical row fields:
+document_key, version, is_current,
+deleted, value_hash, value_json.
+
+Current and historical versions live
+in the same mt_user_logical_name table.
+end note
+
+note over Tx
+Strict OCC conflict token:
+version.
+
+value_hash is returned in metadata,
+but OCC validation does not compare it.
+end note
+
+@enduml
