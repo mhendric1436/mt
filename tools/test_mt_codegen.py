@@ -60,6 +60,39 @@ class SchemaValidationTests(unittest.TestCase):
 
         self.assert_codegen_input_error(schema, "key field 'missing' does not exist")
 
+    def test_codegen_input_rejects_non_lowercase_table_name(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["table_name"] = "Users"
+
+        self.assert_codegen_input_error(
+            schema,
+            "table_name: must match pattern '^(?!mt_)[a-z][a-z0-9_]*$'",
+        )
+
+    def test_codegen_input_rejects_reserved_table_prefix(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["table_name"] = "mt_users"
+
+        self.assert_codegen_input_error(
+            schema,
+            "table_name: must match pattern '^(?!mt_)[a-z][a-z0-9_]*$'",
+        )
+
+    def test_codegen_input_rejects_long_table_name(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["table_name"] = "a" * 40
+
+        self.assert_codegen_input_error(schema, "table_name: must be at most 39 characters")
+
+    def test_codegen_input_rejects_sql_keyword_table_name(self):
+        schema = copy.deepcopy(VALID_SCHEMA)
+        schema["table_name"] = "select"
+
+        self.assert_codegen_input_error(
+            schema,
+            "table_name must not be a SQL reserved keyword: 'select'",
+        )
+
     def test_example_schemas_validate_against_json_schema_file(self):
         root = Path(__file__).resolve().parents[1]
         for path in (root / "examples" / "schemas").glob("*.mt.json"):

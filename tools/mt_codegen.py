@@ -9,8 +9,73 @@ from pathlib import Path
 
 
 IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+TABLE_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+MAX_TABLE_NAME_LENGTH = 39
 SUPPORTED_TYPES = {"string", "bool", "int64", "double"}
 CODEGEN_SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schemas" / "mt-codegen.schema.json"
+SQL_RESERVED_TABLE_NAMES = {
+    "all",
+    "and",
+    "any",
+    "as",
+    "asc",
+    "between",
+    "by",
+    "case",
+    "check",
+    "column",
+    "constraint",
+    "create",
+    "cross",
+    "default",
+    "delete",
+    "desc",
+    "distinct",
+    "drop",
+    "else",
+    "except",
+    "exists",
+    "false",
+    "foreign",
+    "from",
+    "full",
+    "group",
+    "having",
+    "in",
+    "index",
+    "inner",
+    "insert",
+    "intersect",
+    "into",
+    "is",
+    "join",
+    "key",
+    "left",
+    "like",
+    "limit",
+    "not",
+    "null",
+    "on",
+    "or",
+    "order",
+    "outer",
+    "primary",
+    "references",
+    "right",
+    "select",
+    "set",
+    "table",
+    "then",
+    "true",
+    "union",
+    "unique",
+    "update",
+    "using",
+    "values",
+    "when",
+    "where",
+    "with",
+}
 
 
 class SchemaError(Exception):
@@ -180,6 +245,8 @@ def validate_json_schema(instance, schema, root_schema=None, path="schema"):
     if isinstance(instance, str):
         if "minLength" in schema and len(instance) < schema["minLength"]:
             json_schema_fail(path, f"must be at least {schema['minLength']} characters")
+        if "maxLength" in schema and len(instance) > schema["maxLength"]:
+            json_schema_fail(path, f"must be at most {schema['maxLength']} characters")
         if "pattern" in schema and re.search(schema["pattern"], instance) is None:
             json_schema_fail(path, f"must match pattern {schema['pattern']!r}")
 
@@ -290,6 +357,20 @@ def require_named_string(schema, key, context):
 def validate_identifier(value, context):
     if not IDENT_RE.match(value):
         fail(f"{context} must be a valid C++ identifier: {value!r}")
+
+
+def validate_table_name(value):
+    if not TABLE_NAME_RE.match(value):
+        fail(
+            "table_name must be a lowercase SQL-safe identifier: "
+            "^[a-z][a-z0-9_]*$"
+        )
+    if len(value) > MAX_TABLE_NAME_LENGTH:
+        fail(f"table_name must be at most {MAX_TABLE_NAME_LENGTH} characters")
+    if value.startswith("mt_"):
+        fail("table_name must not start with reserved prefix 'mt_'")
+    if value in SQL_RESERVED_TABLE_NAMES:
+        fail(f"table_name must not be a SQL reserved keyword: {value!r}")
 
 
 def validate_namespace(value):
@@ -792,6 +873,7 @@ def validate_schema(schema):
     table_name = require_string(schema, "table_name")
     class_name = require_string(schema, "class_name")
     key = parse_key_spec(schema)
+    validate_table_name(table_name)
     validate_identifier(class_name, "class_name")
 
     schema_version = schema.get("schema_version", 1)

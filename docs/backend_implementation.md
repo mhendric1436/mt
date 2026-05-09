@@ -92,6 +92,21 @@ private implementation details. User schemas remain local application files proc
 `tools/mt_codegen.py`; the backend stores accepted snapshots so it can compare future
 requests.
 
+## User Table Storage Naming
+
+`CollectionSpec.logical_name` comes from generated mapping `table_name` and is the
+logical user table name. Backends should map each logical user table to exactly one
+physical row store using:
+
+```text
+mt_user_<logical_name>
+```
+
+For example, logical table `users` maps to physical row store `mt_user_users`. The
+`mt_user_` prefix keeps user row storage in the backend-owned namespace while preserving
+a direct one-to-one mapping. Backend-private metadata continues to use separate `mt_*`
+tables such as `mt_collections` and `mt_clock`.
+
 `ensure_collection(spec)` should follow this shape:
 
 ```text

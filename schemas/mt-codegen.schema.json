@@ -14,8 +14,10 @@
     },
     "table_name": {
       "type": "string",
-      "description": "Logical table or collection name exposed by the generated mapping.",
-      "minLength": 1
+      "description": "Logical user table name exposed by the generated mapping. Backends map this one-to-one to a physical mt_user_<table_name> store.",
+      "minLength": 1,
+      "maxLength": 39,
+      "pattern": "^(?!mt_)[a-z][a-z0-9_]*$"
     },
     "class_name": {
       "$ref": "#/$defs/cppIdentifier",

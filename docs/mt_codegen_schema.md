@@ -26,7 +26,7 @@ The schema uses JSON Schema Draft 2020-12:
 
 Required top-level members:
 
-- `table_name`: non-empty logical table name.
+- `table_name`: logical user table name.
 - `class_name`: generated C++ row struct name.
 - `key`: single key field name, or a composite key object.
 - `fields`: non-empty array of generated fields.
@@ -37,6 +37,27 @@ Optional top-level members:
   no namespace.
 - `schema_version`: positive integer. Defaults to `1`.
 - `indexes`: array of index descriptors, or `null`. Defaults to no indexes.
+
+## Table Names
+
+`table_name` is the logical user table name exposed by generated mappings. Backends map
+that name one-to-one to a backend-owned physical row store:
+
+```text
+users -> mt_user_users
+orders -> mt_user_orders
+```
+
+The physical prefix keeps user row stores out of the backend-private `mt_*` metadata
+namespace while preserving a direct mapping from each user table to exactly one physical
+store.
+
+`table_name` must:
+
+- match `^[a-z][a-z0-9_]*$`
+- be at most 39 characters
+- not start with `mt_`
+- not be a SQL reserved keyword such as `select`, `table`, `order`, or `where`
 
 ## Fields
 

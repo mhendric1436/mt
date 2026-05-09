@@ -139,6 +139,11 @@ The portable structural contract for schema files is defined by JSON Schema Draf
 2020-12 in `schemas/mt-codegen.schema.json`. See `docs/mt_codegen_schema.md` for the
 full codegen schema contract and the semantic checks enforced by the generator.
 
+Schema `table_name` values are logical user table names. Backends map each one to
+exactly one physical row store named `mt_user_<table_name>`, so table names must be
+lowercase SQL-safe identifiers and must not collide with SQL keywords or the reserved
+`mt_` prefix.
+
 Composite keys are supported by specifying multiple fields and a separator:
 
 ```json
