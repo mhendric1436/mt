@@ -3,6 +3,7 @@
 #include <iostream>
 
 void test_memory_backend_reports_capabilities();
+void test_memory_backend_physical_user_table_name_uses_reserved_prefix();
 void test_memory_backend_stores_schema_snapshot_on_create();
 void test_memory_backend_updates_schema_snapshot_for_compatible_repeat_ensure();
 void test_memory_backend_rejects_incompatible_schema_change();
@@ -28,6 +29,7 @@ void test_memory_backend_unique_indexes_reject_missing_path_but_allow_same_key_a
 int main()
 {
     test_memory_backend_reports_capabilities();
+    test_memory_backend_physical_user_table_name_uses_reserved_prefix();
     test_memory_backend_stores_schema_snapshot_on_create();
     test_memory_backend_updates_schema_snapshot_for_compatible_repeat_ensure();
     test_memory_backend_rejects_incompatible_schema_change();

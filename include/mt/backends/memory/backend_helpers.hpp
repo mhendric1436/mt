@@ -21,6 +21,11 @@
 namespace mt::backends::memory
 {
 
+inline std::string physical_user_table_name(std::string_view logical_name)
+{
+    return "mt_user_" + std::string(logical_name);
+}
+
 inline std::optional<CollectionSpec> memory_schema_snapshot(
     MemoryState& state,
     std::string_view logical_name

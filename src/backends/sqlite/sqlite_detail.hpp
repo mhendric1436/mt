@@ -1,9 +1,11 @@
 #pragma once
 
+#include "mt/collection.hpp"
 #include "mt/errors.hpp"
 
 #include <sqlite3.h>
 
+#include <cctype>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -18,6 +20,68 @@
 
 namespace mt::backends::sqlite::detail
 {
+
+inline std::string safe_identifier_part(std::string_view value)
+{
+    std::string out;
+    out.reserve(value.size());
+    for (auto ch : value)
+    {
+        auto byte = static_cast<unsigned char>(ch);
+        if (std::isalnum(byte) || ch == '_')
+        {
+            out.push_back(static_cast<char>(std::tolower(byte)));
+        }
+        else
+        {
+            out.push_back('_');
+        }
+    }
+    if (out.empty())
+    {
+        return "idx";
+    }
+    return out;
+}
+
+inline std::string physical_user_table_name(std::string_view logical_name)
+{
+    return "mt_user_" + std::string(logical_name);
+}
+
+inline std::string quote_identifier(std::string_view identifier)
+{
+    std::string quoted;
+    quoted.reserve(identifier.size() + 2);
+    quoted.push_back('"');
+    for (auto ch : identifier)
+    {
+        if (ch == '"')
+        {
+            quoted += "\"\"";
+        }
+        else
+        {
+            quoted.push_back(ch);
+        }
+    }
+    quoted.push_back('"');
+    return quoted;
+}
+
+inline std::string physical_current_key_index_name(std::string_view logical_name)
+{
+    return physical_user_table_name(logical_name) + "_current_key_idx";
+}
+
+inline std::string physical_json_index_name(
+    std::string_view logical_name,
+    const IndexSpec& index
+)
+{
+    return physical_user_table_name(logical_name) + "_" + safe_identifier_part(index.name) +
+           (index.unique ? "_uidx" : "_idx");
+}
 
 struct StoragePath
 {

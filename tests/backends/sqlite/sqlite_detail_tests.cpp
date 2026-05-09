@@ -1,5 +1,33 @@
 #include "sqlite_test_support.hpp"
 
+void test_sqlite_detail_physical_names_are_derived_from_logical_table()
+{
+    using mt::backends::sqlite::detail::physical_current_key_index_name;
+    using mt::backends::sqlite::detail::physical_json_index_name;
+    using mt::backends::sqlite::detail::physical_user_table_name;
+
+    auto unique = mt::IndexSpec::json_path_index("email", "$.email").make_unique();
+    auto non_unique = mt::IndexSpec::json_path_index("active", "$.active");
+
+    EXPECT_EQ(physical_user_table_name("users"), std::string("mt_user_users"));
+    EXPECT_EQ(
+        physical_current_key_index_name("users"), std::string("mt_user_users_current_key_idx")
+    );
+    EXPECT_EQ(physical_json_index_name("users", unique), std::string("mt_user_users_email_uidx"));
+    EXPECT_EQ(
+        physical_json_index_name("users", non_unique), std::string("mt_user_users_active_idx")
+    );
+}
+
+void test_sqlite_detail_quote_identifier_escapes_embedded_quotes()
+{
+    EXPECT_EQ(
+        mt::backends::sqlite::detail::quote_identifier("mt_user_users"),
+        std::string("\"mt_user_users\"")
+    );
+    EXPECT_EQ(mt::backends::sqlite::detail::quote_identifier("a\"b"), std::string("\"a\"\"b\""));
+}
+
 void test_sqlite_detail_connection_executes_sql()
 {
     auto connection = mt::backends::sqlite::detail::Connection::open_memory();

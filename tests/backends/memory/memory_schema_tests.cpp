@@ -4,6 +4,13 @@ using memory_test_support::Harness;
 using memory_test_support::User;
 using memory_test_support::user_schema_spec;
 
+void test_memory_backend_physical_user_table_name_uses_reserved_prefix()
+{
+    EXPECT_EQ(
+        mt::backends::memory::physical_user_table_name("users"), std::string("mt_user_users")
+    );
+}
+
 void test_memory_backend_reports_capabilities()
 {
     Harness h;

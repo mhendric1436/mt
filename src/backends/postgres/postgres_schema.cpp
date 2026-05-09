@@ -112,6 +112,45 @@ std::string create_physical_unique_index_sql(
 
 } // namespace
 
+std::string physical_user_table_name(std::string_view logical_name)
+{
+    return "mt_user_" + std::string(logical_name);
+}
+
+std::string quote_identifier(std::string_view identifier)
+{
+    std::string quoted;
+    quoted.reserve(identifier.size() + 2);
+    quoted.push_back('"');
+    for (auto ch : identifier)
+    {
+        if (ch == '"')
+        {
+            quoted += "\"\"";
+        }
+        else
+        {
+            quoted.push_back(ch);
+        }
+    }
+    quoted.push_back('"');
+    return quoted;
+}
+
+std::string physical_current_key_index_name(std::string_view logical_name)
+{
+    return physical_user_table_name(logical_name) + "_current_key_idx";
+}
+
+std::string physical_json_index_name(
+    std::string_view logical_name,
+    const IndexSpec& index
+)
+{
+    return physical_user_table_name(logical_name) + "_" + safe_identifier_part(index.name) +
+           (index.unique ? "_uidx" : "_idx");
+}
+
 std::string PrivateSchemaSql::create_metadata_table()
 {
     return "CREATE TABLE IF NOT EXISTS mt_metadata ("

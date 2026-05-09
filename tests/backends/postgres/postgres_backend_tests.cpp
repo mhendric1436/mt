@@ -15,6 +15,44 @@
 
 namespace
 {
+void test_postgres_physical_names_are_derived_from_logical_table()
+{
+    auto unique = mt::IndexSpec::json_path_index("email", "$.email").make_unique();
+    auto non_unique = mt::IndexSpec::json_path_index("active", "$.active");
+
+    if (mt::backends::postgres::detail::physical_user_table_name("users") != "mt_user_users")
+    {
+        throw mt::BackendError("postgres physical table naming helper returned wrong name");
+    }
+    if (mt::backends::postgres::detail::physical_current_key_index_name("users") !=
+        "mt_user_users_current_key_idx")
+    {
+        throw mt::BackendError("postgres current key index naming helper returned wrong name");
+    }
+    if (mt::backends::postgres::detail::physical_json_index_name("users", unique) !=
+        "mt_user_users_email_uidx")
+    {
+        throw mt::BackendError("postgres unique JSON index naming helper returned wrong name");
+    }
+    if (mt::backends::postgres::detail::physical_json_index_name("users", non_unique) !=
+        "mt_user_users_active_idx")
+    {
+        throw mt::BackendError("postgres JSON index naming helper returned wrong name");
+    }
+}
+
+void test_postgres_quote_identifier_escapes_embedded_quotes()
+{
+    if (mt::backends::postgres::detail::quote_identifier("mt_user_users") != "\"mt_user_users\"")
+    {
+        throw mt::BackendError("postgres quote identifier helper returned wrong name");
+    }
+    if (mt::backends::postgres::detail::quote_identifier("a\"b") != "\"a\"\"b\"")
+    {
+        throw mt::BackendError("postgres quote identifier helper did not escape quotes");
+    }
+}
+
 mt::CollectionSpec postgres_user_schema(std::string logical_name)
 {
     return mt::CollectionSpec{
@@ -1264,6 +1302,9 @@ void test_postgres_rejects_incompatible_schema_change(std::string_view dsn)
 
 int main()
 {
+    test_postgres_physical_names_are_derived_from_logical_table();
+    test_postgres_quote_identifier_escapes_embedded_quotes();
+
     const auto* dsn = std::getenv("MT_POSTGRES_TEST_DSN");
     if (!dsn || *dsn == '\0')
     {

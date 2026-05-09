@@ -108,6 +108,17 @@ std::vector<IndexSpec> load_collection_indexes(
     CollectionId collection
 );
 
+std::string physical_user_table_name(std::string_view logical_name);
+
+std::string quote_identifier(std::string_view identifier);
+
+std::string physical_current_key_index_name(std::string_view logical_name);
+
+std::string physical_json_index_name(
+    std::string_view logical_name,
+    const IndexSpec& index
+);
+
 std::string physical_unique_index_name(
     CollectionId collection,
     const IndexSpec& index
