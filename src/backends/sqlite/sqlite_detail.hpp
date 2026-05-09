@@ -49,26 +49,6 @@ inline std::string physical_user_table_name(std::string_view logical_name)
     return "mt_user_" + std::string(logical_name);
 }
 
-inline std::string quote_identifier(std::string_view identifier)
-{
-    std::string quoted;
-    quoted.reserve(identifier.size() + 2);
-    quoted.push_back('"');
-    for (auto ch : identifier)
-    {
-        if (ch == '"')
-        {
-            quoted += "\"\"";
-        }
-        else
-        {
-            quoted.push_back(ch);
-        }
-    }
-    quoted.push_back('"');
-    return quoted;
-}
-
 inline std::string quote_sql_string(std::string_view value)
 {
     std::string quoted;
@@ -441,7 +421,7 @@ struct PrivateSchemaSql
 
     static std::string create_user_table(std::string_view logical_name)
     {
-        auto table = quote_identifier(physical_user_table_name(logical_name));
+        auto table = physical_user_table_name(logical_name);
         return "CREATE TABLE IF NOT EXISTS " + table +
                " ("
                "document_key TEXT NOT NULL,"
@@ -456,8 +436,8 @@ struct PrivateSchemaSql
 
     static std::string create_current_key_index(std::string_view logical_name)
     {
-        auto index = quote_identifier(physical_current_key_index_name(logical_name));
-        auto table = quote_identifier(physical_user_table_name(logical_name));
+        auto index = physical_current_key_index_name(logical_name);
+        auto table = physical_user_table_name(logical_name);
         return "CREATE UNIQUE INDEX IF NOT EXISTS " + index + " ON " + table +
                " (document_key) WHERE is_current = 1";
     }
@@ -467,8 +447,8 @@ struct PrivateSchemaSql
         const IndexSpec& index
     )
     {
-        auto index_name = quote_identifier(physical_json_index_name(logical_name, index));
-        auto table = quote_identifier(physical_user_table_name(logical_name));
+        auto index_name = physical_json_index_name(logical_name, index);
+        auto table = physical_user_table_name(logical_name);
         auto unique = index.unique ? std::string("UNIQUE ") : std::string{};
         return "CREATE " + unique + "INDEX IF NOT EXISTS " + index_name + " ON " + table +
                " (json_extract(value_json, " + quote_sql_string(index.json_path) +
@@ -514,7 +494,7 @@ struct PrivateSchemaSql
 
     static std::string select_current_unique_index_candidates(std::string_view logical_name)
     {
-        auto table = quote_identifier(physical_user_table_name(logical_name));
+        auto table = physical_user_table_name(logical_name);
         return "SELECT document_key, value_json "
                "FROM " +
                table + " WHERE is_current = 1 AND deleted = 0 AND document_key <> ?";
@@ -522,7 +502,7 @@ struct PrivateSchemaSql
 
     static std::string select_current_documents_for_index_rebuild(std::string_view logical_name)
     {
-        auto table = quote_identifier(physical_user_table_name(logical_name));
+        auto table = physical_user_table_name(logical_name);
         return "SELECT document_key, value_json "
                "FROM " +
                table + " WHERE is_current = 1 AND deleted = 0 ORDER BY document_key";
@@ -561,7 +541,7 @@ struct PrivateSchemaSql
 
     static std::string select_snapshot_document(std::string_view logical_name)
     {
-        auto table = quote_identifier(physical_user_table_name(logical_name));
+        auto table = physical_user_table_name(logical_name);
         return "SELECT version, deleted, value_hash, value_json "
                "FROM " +
                table + " WHERE document_key = ? AND version <= ? ORDER BY version DESC LIMIT 1";
@@ -569,7 +549,7 @@ struct PrivateSchemaSql
 
     static std::string select_current_metadata(std::string_view logical_name)
     {
-        auto table = quote_identifier(physical_user_table_name(logical_name));
+        auto table = physical_user_table_name(logical_name);
         return "SELECT version, deleted, value_hash "
                "FROM " +
                table + " WHERE document_key = ? AND is_current = 1";
@@ -580,7 +560,7 @@ struct PrivateSchemaSql
         bool has_after_key
     )
     {
-        auto table = quote_identifier(physical_user_table_name(logical_name));
+        auto table = physical_user_table_name(logical_name);
         auto sql = "SELECT document_key, version, deleted, value_hash, value_json FROM " + table +
                    " WHERE is_current = 1 ";
         if (has_after_key)
@@ -597,7 +577,7 @@ struct PrivateSchemaSql
         bool has_limit
     )
     {
-        auto table = quote_identifier(physical_user_table_name(logical_name));
+        auto table = physical_user_table_name(logical_name);
         auto sql = "SELECT h.document_key, h.version, h.deleted, h.value_hash, h.value_json "
                    "FROM " +
                    table +
@@ -628,7 +608,7 @@ struct PrivateSchemaSql
         bool has_limit
     )
     {
-        auto table = quote_identifier(physical_user_table_name(logical_name));
+        auto table = physical_user_table_name(logical_name);
         auto sql = "SELECT document_key, version, deleted, value_hash FROM " + table +
                    " WHERE is_current = 1 ";
         if (has_after_key)
@@ -648,7 +628,7 @@ struct PrivateSchemaSql
         bool is_current
     )
     {
-        auto table = quote_identifier(physical_user_table_name(logical_name));
+        auto table = physical_user_table_name(logical_name);
         return "INSERT INTO " + table +
                " (document_key, version, is_current, deleted, value_hash, value_json) "
                "VALUES (?, ?, " +
@@ -663,7 +643,7 @@ struct PrivateSchemaSql
 
     static std::string clear_current_row(std::string_view logical_name)
     {
-        auto table = quote_identifier(physical_user_table_name(logical_name));
+        auto table = physical_user_table_name(logical_name);
         return "UPDATE " + table + " SET is_current = 0 WHERE document_key = ? AND is_current = 1";
     }
 
@@ -696,7 +676,7 @@ struct PrivateSchemaSql
         bool only_current = false
     )
     {
-        auto table = quote_identifier(physical_user_table_name(logical_name));
+        auto table = physical_user_table_name(logical_name);
         auto sql = "SELECT version, deleted, value_hash, value_json, is_current FROM " + table +
                    " WHERE document_key = ?";
         if (only_current)
@@ -709,7 +689,7 @@ struct PrivateSchemaSql
 
     static std::string count_user_rows(std::string_view logical_name)
     {
-        return "SELECT COUNT(*) FROM " + quote_identifier(physical_user_table_name(logical_name));
+        return "SELECT COUNT(*) FROM " + physical_user_table_name(logical_name);
     }
 };
 

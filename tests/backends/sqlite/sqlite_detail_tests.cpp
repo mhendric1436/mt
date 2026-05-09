@@ -19,15 +19,6 @@ void test_sqlite_detail_physical_names_are_derived_from_logical_table()
     );
 }
 
-void test_sqlite_detail_quote_identifier_escapes_embedded_quotes()
-{
-    EXPECT_EQ(
-        mt::backends::sqlite::detail::quote_identifier("mt_user_users"),
-        std::string("\"mt_user_users\"")
-    );
-    EXPECT_EQ(mt::backends::sqlite::detail::quote_identifier("a\"b"), std::string("\"a\"\"b\""));
-}
-
 void test_sqlite_detail_connection_executes_sql()
 {
     auto connection = mt::backends::sqlite::detail::Connection::open_memory();

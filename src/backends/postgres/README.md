@@ -25,7 +25,7 @@ Storage direction:
 - each logical user table maps to one physical row table named `mt_user_<table_name>`
 - that row table stores both current and historical row versions
 - backend-private metadata remains in separate `mt_*` tables
-- SQL identifiers generated from physical names should be quoted when emitted
+- generated `mt_*` physical table and index names are emitted as plain identifiers
 
 Schema behavior:
 

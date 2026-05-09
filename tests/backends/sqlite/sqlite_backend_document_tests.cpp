@@ -10,7 +10,7 @@ std::int64_t count_unique_index_entries(
     auto connection = mt::backends::sqlite::detail::Connection::open(path.string());
     mt::backends::sqlite::detail::Statement count{
         connection.get(),
-        "SELECT COUNT(*) FROM \"mt_user_users\" "
+        "SELECT COUNT(*) FROM mt_user_users "
         "WHERE is_current = 1 AND deleted = 0 AND json_extract(value_json, '$.email') = ?"
     };
     count.bind_text(1, email);

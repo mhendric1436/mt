@@ -39,7 +39,6 @@ void test_sqlite_core_table_list_limit_skips_tombstones();
 void test_sqlite_core_transactions_reject_unique_index_conflict();
 void test_sqlite_core_rejects_unsupported_query();
 void test_sqlite_detail_physical_names_are_derived_from_logical_table();
-void test_sqlite_detail_quote_identifier_escapes_embedded_quotes();
 void test_sqlite_detail_connection_executes_sql();
 void test_sqlite_detail_statement_reuses_bindings_after_reset();
 void test_sqlite_detail_statement_binds_text_and_null();
@@ -83,7 +82,6 @@ int main()
     test_sqlite_core_transactions_reject_unique_index_conflict();
     test_sqlite_core_rejects_unsupported_query();
     test_sqlite_detail_physical_names_are_derived_from_logical_table();
-    test_sqlite_detail_quote_identifier_escapes_embedded_quotes();
     test_sqlite_detail_connection_executes_sql();
     test_sqlite_detail_statement_reuses_bindings_after_reset();
     test_sqlite_detail_statement_binds_text_and_null();
