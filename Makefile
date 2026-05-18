@@ -54,7 +54,11 @@ BACKEND_HEADERS := $(wildcard include/mt/backend/*.hpp)
 MEMORY_BACKEND_HEADERS := $(wildcard include/mt/backends/memory/*.hpp)
 
 CORE_HEADER := include/mt/core.hpp
+VENDOR_HEADERS := \
+	include/mt/vendor/statespec_json.hpp
+
 CORE_HEADERS := \
+	$(VENDOR_HEADERS) \
 	include/mt/json.hpp \
 	include/mt/json_parser.hpp \
 	include/mt/hash.hpp \

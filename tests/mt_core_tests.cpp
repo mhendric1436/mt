@@ -703,7 +703,7 @@ void test_json_parser_rejects_invalid_json()
 {
     EXPECT_THROW_AS(mt::parse_json("{\"missing\":true"), mt::BackendError);
     EXPECT_THROW_AS(mt::parse_json("[1,]"), mt::BackendError);
-    EXPECT_THROW_AS(mt::parse_json("\"\\u00ff\""), mt::BackendError);
+    EXPECT_EQ(mt::parse_json("\"\\u00ff\""), mt::Json("\xc3\xbf"));
 }
 
 void test_non_transactional_get_missing_returns_nullopt()
